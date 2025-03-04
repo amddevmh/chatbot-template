@@ -1,4 +1,5 @@
 import { AppSidebar } from "@/components/app-sidebar";
+import { AppRightSidebar } from "@/components/app-right-sidebar";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -12,17 +13,27 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { ThemeProvider } from "./components/theme-provider";
-import { Button } from "./components/ui/button";
 
 export default function App() {
+  // Control the visibility of sidebars
+  const showLeftSidebar = true;
+  const showRightSidebar = true;
+  
   return (
     <ThemeProvider defaultTheme="dark" storageKey="vite-ui-theme">
-      <SidebarProvider>
-        <AppSidebar />
+      <SidebarProvider
+        showLeftSidebar={showLeftSidebar}
+        showRightSidebar={showRightSidebar}
+      >
+        {showLeftSidebar && <AppSidebar />}
         <SidebarInset>
           <header className="sticky top-0 flex h-16 shrink-0 items-center gap-2 border-b bg-background px-4">
-            <SidebarTrigger className="-ml-1" />
-            <Separator orientation="vertical" className="mr-2 h-4" />
+            {showLeftSidebar && (
+              <>
+                <SidebarTrigger side="left" className="-ml-1" />
+                <Separator orientation="vertical" className="mr-2 h-4" />
+              </>
+            )}
             <Breadcrumb>
               <BreadcrumbList>
                 <BreadcrumbItem>
@@ -30,11 +41,16 @@ export default function App() {
                 </BreadcrumbItem>
               </BreadcrumbList>
             </Breadcrumb>
+            <div className="flex-1" />
+            {showRightSidebar && (
+              <SidebarTrigger side="right" className="-mr-1" />
+            )}
           </header>
           <div className="flex flex-1 flex-col gap-4 p-4">
-            <Button>Button</Button>
+           
           </div>
         </SidebarInset>
+        {showRightSidebar && <AppRightSidebar />}
       </SidebarProvider>
     </ThemeProvider>
   );
