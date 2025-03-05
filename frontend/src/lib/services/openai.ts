@@ -45,6 +45,7 @@ export async function sendChatMessage(messages: OpenAI.Chat.ChatCompletionMessag
 export async function extractNutritionInfo(userMessage: string): Promise<NutritionInfo | null> {
   try {
     const systemPrompt = `You are a nutrition analysis assistant. Extract nutritional information from the user's food description.
+    Only respond to food and nutrition related queries. If the user's message is not about food or nutrition, respond with an empty JSON object.
     Return ONLY a JSON object with the following structure, and nothing else:
     {
       "mealName": "descriptive meal name based on the items (e.g. Breakfast, Lunch, Snack, etc.)",

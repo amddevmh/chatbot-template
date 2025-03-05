@@ -10,6 +10,30 @@ import { cn } from "@/lib/utils"
 import { sendChatMessage, extractNutritionInfo } from "@/lib/services/openai"
 import { useNutrition } from "@/lib/context/nutrition-context"
 
+// Typing indicator component with animated dots
+function TypingIndicator() {
+  const [dots, setDots] = React.useState(".")
+  
+  React.useEffect(() => {
+    const interval = setInterval(() => {
+      setDots(prev => prev.length >= 3 ? "." : prev + ".")
+    }, 500)
+    
+    return () => clearInterval(interval)
+  }, [])
+  
+  return (
+    <div className="flex max-w-[80%] flex-col gap-2 rounded-lg px-3 py-2 text-sm bg-muted">
+      <div className="flex items-center gap-2">
+        <Avatar className="h-6 w-6 shrink-0">
+          <AvatarFallback>AI</AvatarFallback>
+        </Avatar>
+        <div className="font-medium">Typing{dots}</div>
+      </div>
+    </div>
+  )
+}
+
 // Message type definition
 interface Message {
   id: string
@@ -24,7 +48,7 @@ export function Chat() {
     {
       id: "1",
       role: "assistant",
-      content: "Hello! I'm your nutrition assistant. Tell me what you've eaten today, and I'll help track your nutrition goals.",
+      content: "Hello! I'm your nutrition assistant. I can help you track your meals and provide nutrition information. Tell me what you've eaten today, and I'll help track your nutrition goals. Please keep our conversation focused on nutrition and health topics.",
       timestamp: new Date(),
     },
   ])
@@ -143,8 +167,8 @@ export function Chat() {
 
       // Add system instruction about nutrition confirmation if we have nutrition data
       const systemContent = hasNutritionInfo
-        ? "You are a helpful nutrition assistant. You help users track their food intake and provide nutritional advice. Be friendly, supportive, and concise. I have extracted nutrition information from the user's input. Ask the user to confirm if the nutrition information looks correct before updating their tracker. DO NOT update their nutrition information until they confirm."
-        : "You are a helpful nutrition assistant. You help users track their food intake and provide nutritional advice. Be friendly, supportive, and concise. If the user mentions food, ask for specific details like portion size, preparation method, and specific ingredients."
+        ? "You are a helpful nutrition assistant. You help users track their food intake and provide nutritional advice. Be friendly, supportive, and concise. I have extracted nutrition information from the user's input. Ask the user to confirm if the nutrition information looks correct before updating their tracker. DO NOT update their nutrition information until they confirm. If the user asks about topics unrelated to nutrition, food, health, or the nutrition tracking app, politely redirect them back to nutrition-related topics by saying something like 'Let's focus on your nutrition goals. Is there anything specific about your diet or nutrition that I can help with?'"
+        : "You are a helpful nutrition assistant. You help users track their food intake and provide nutritional advice. Be friendly, supportive, and concise. If the user mentions food, ask for specific details like portion size, preparation method, and specific ingredients. If the user asks about topics unrelated to nutrition, food, health, or the nutrition tracking app, politely redirect them back to nutrition-related topics by saying something like 'Let's focus on your nutrition goals. Is there anything specific about your diet or nutrition that I can help with?'"
 
       // Convert message history to OpenAI format
       const messageHistory: OpenAI.Chat.ChatCompletionMessageParam[] = [
@@ -259,6 +283,7 @@ export function Chat() {
                 </div>
               </div>
             ))}
+            {isLoading && <TypingIndicator />}
             <div ref={messagesEndRef} />
           </div>
         </ScrollArea>
