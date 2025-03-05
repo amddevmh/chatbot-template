@@ -3,6 +3,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Dict, Any, Optional, Annotated
 
+from app.api.routes import router as api_router
+from app.config import settings
+
 app = FastAPI(title="Nutrition Assistant API")
 
 # Configure CORS to allow requests from the frontend
@@ -13,6 +16,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Include our API router
+app.include_router(api_router, prefix=settings.API_PREFIX)
 
 class ChatMessage(BaseModel):
     message: str
