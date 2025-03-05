@@ -1,5 +1,7 @@
 import { AppSidebar } from "@/components/app-sidebar";
 import { AppRightSidebar } from "@/components/app-right-sidebar";
+import { Chat } from "@/components/chat";
+import { NutritionProvider } from "@/lib/context/nutrition-context";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -21,10 +23,11 @@ export default function App() {
   
   return (
     <ThemeProvider defaultTheme="dark" storageKey="vite-ui-theme">
-      <SidebarProvider
-        showLeftSidebar={showLeftSidebar}
-        showRightSidebar={showRightSidebar}
-      >
+      <NutritionProvider>
+        <SidebarProvider
+          showLeftSidebar={showLeftSidebar}
+          showRightSidebar={showRightSidebar}
+        >
         {showLeftSidebar && <AppSidebar />}
         <SidebarInset>
           <header className="sticky top-0 flex h-16 shrink-0 items-center gap-2 border-b bg-background px-4">
@@ -46,12 +49,13 @@ export default function App() {
               <SidebarTrigger side="right" className="-mr-1" />
             )}
           </header>
-          <div className="flex flex-1 flex-col gap-4 p-4">
-           
+          <div className="flex flex-1 flex-col h-[calc(100vh-4rem)]">
+            <Chat />
           </div>
         </SidebarInset>
         {showRightSidebar && <AppRightSidebar />}
-      </SidebarProvider>
+        </SidebarProvider>
+      </NutritionProvider>
     </ThemeProvider>
   );
 }

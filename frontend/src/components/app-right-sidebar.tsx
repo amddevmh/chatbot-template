@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Apple, Dumbbell, Droplet, Flame, Leaf, Utensils } from "lucide-react"
+import { Apple, Dumbbell, Droplet, Flame, Leaf, Utensils, X, Clock, RefreshCw } from "lucide-react"
 
 import {
   Sidebar,
@@ -11,32 +11,15 @@ import {
 import { Progress } from "@/components/ui/progress"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-
-// Mock data for nutrition tracking
-const nutritionData = {
-  calories: {
-    current: 1450,
-    target: 2000,
-    unit: "kcal"
-  },
-  macros: [
-    { name: "Protein", current: 85, target: 120, unit: "g", color: "bg-blue-500" },
-    { name: "Carbs", current: 160, target: 250, unit: "g", color: "bg-amber-500" },
-    { name: "Fat", current: 45, target: 65, unit: "g", color: "bg-rose-500" },
-    { name: "Fiber", current: 18, target: 30, unit: "g", color: "bg-green-500" },
-  ],
-  micronutrients: [
-    { name: "Vitamin D", current: 10, target: 15, unit: "μg", color: "bg-yellow-500" },
-    { name: "Iron", current: 6, target: 18, unit: "mg", color: "bg-red-500" },
-    { name: "Calcium", current: 650, target: 1000, unit: "mg", color: "bg-slate-400" },
-    { name: "Potassium", current: 2100, target: 3500, unit: "mg", color: "bg-purple-500" },
-  ],
-  water: {
-    current: 1.2,
-    target: 2.5,
-    unit: "L"
-  }
-}
+import { useNutrition, MealItem } from "@/lib/context/nutrition-context"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { 
+  Accordion, 
+  AccordionContent, 
+  AccordionItem, 
+  AccordionTrigger 
+} from "@/components/ui/accordion"
+import { Button } from "@/components/ui/button"
 
 // Helper function to get icon for each macro
 const getMacroIcon = (name: string) => {
@@ -52,6 +35,80 @@ const getMacroIcon = (name: string) => {
     default:
       return <Utensils className="h-4 w-4" />
   }
+}
+
+// MealCard component for displaying meals with their items
+function MealCard({ meal }: { meal: MealItem }) {
+  const { removeMeal } = useNutrition();
+  const formattedTime = new Date(meal.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const [expanded, setExpanded] = React.useState(false);
+  
+  return (
+    <Card className="p-3 shadow-sm border border-border/50">
+      <div className="flex justify-between items-start">
+        <div className="w-full">
+          <div className="flex justify-between items-center w-full">
+            <h4 className="font-medium text-sm">{meal.name}</h4>
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className="h-6 w-6" 
+              onClick={() => removeMeal(meal.id)}
+            >
+              <X className="h-3 w-3" />
+            </Button>
+          </div>
+          
+          <div className="flex items-center mt-1 text-xs text-muted-foreground">
+            <Clock className="h-3 w-3 mr-1" />
+            <span>{formattedTime}</span>
+            <span className="mx-1">•</span>
+            <span>{meal.calories} kcal</span>
+            <span className="mx-1">•</span>
+            <span 
+              className="text-primary cursor-pointer hover:underline"
+              onClick={() => setExpanded(!expanded)}
+            >
+              {expanded ? "Hide items" : "Show items"}
+            </span>
+          </div>
+          
+          <div className="flex flex-wrap gap-1 mt-1">
+            {meal.protein && (
+              <Badge variant="secondary" className="text-xs px-1 py-0">
+                P: {meal.protein}g
+              </Badge>
+            )}
+            {meal.carbs && (
+              <Badge variant="secondary" className="text-xs px-1 py-0">
+                C: {meal.carbs}g
+              </Badge>
+            )}
+            {meal.fat && (
+              <Badge variant="secondary" className="text-xs px-1 py-0">
+                F: {meal.fat}g
+              </Badge>
+            )}
+          </div>
+          
+          {/* Food items list */}
+          {expanded && meal.items && meal.items.length > 0 && (
+            <div className="mt-2 border-t pt-2 text-xs">
+              <p className="text-muted-foreground mb-1">Items in this meal:</p>
+              <ul className="space-y-1 pl-2">
+                {meal.items.map((item, index) => (
+                  <li key={index} className="flex justify-between">
+                    <span>{item.name}</span>
+                    <span className="text-muted-foreground">{item.calories} kcal</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      </div>
+    </Card>
+  );
 }
 
 // Progress bar component with label and values
@@ -95,18 +152,48 @@ function NutritionProgressBar({
 }
 
 export function AppRightSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+  const { nutritionData, resetNutritionData } = useNutrition()
+  const today = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  const [resetDialogOpen, setResetDialogOpen] = React.useState(false)
+  
+  const handleReset = () => {
+    resetNutritionData();
+    setResetDialogOpen(false);
+  }
+  
   return (
     <Sidebar side="right" {...props}>
       <SidebarHeader className="h-16 border-b border-sidebar-border">
         <div className="flex items-center justify-between px-4 py-2">
           <h2 className="text-lg font-semibold">Nutrition Tracker</h2>
-          <Badge variant="outline" className="text-xs">
-            Today
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Dialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
+              <DialogTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-7 w-7" title="Reset nutrition data">
+                  <RefreshCw className="h-3.5 w-3.5" />
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Reset Nutrition Data</DialogTitle>
+                  <DialogDescription>
+                    Are you sure you want to reset all nutrition data? This will clear all logged meals and reset all counters to zero.
+                  </DialogDescription>
+                </DialogHeader>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setResetDialogOpen(false)}>Cancel</Button>
+                  <Button variant="destructive" onClick={handleReset}>Reset Data</Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+            <Badge variant="outline" className="text-xs">
+              {today}
+            </Badge>
+          </div>
         </div>
       </SidebarHeader>
       <SidebarContent className="px-4 py-4">
-        {/* Calories Card */}
+        {/* Calories Card - Always visible */}
         <Card className="mb-4 border-none shadow-sm bg-gradient-to-br from-primary/5 to-primary/10">
           <CardHeader className="pb-2 pt-4">
             <CardTitle className="text-base flex items-center gap-2">
@@ -133,51 +220,94 @@ export function AppRightSidebar({ ...props }: React.ComponentProps<typeof Sideba
           </CardContent>
         </Card>
 
-        {/* Macronutrients Section */}
-        <div className="mb-6">
-          <h3 className="text-sm font-semibold mb-3 text-muted-foreground uppercase tracking-wider">Macronutrients</h3>
-          {nutritionData.macros.map((macro) => (
-            <NutritionProgressBar
-              key={macro.name}
-              name={macro.name}
-              current={macro.current}
-              target={macro.target}
-              unit={macro.unit}
-              color={macro.color}
-              icon={getMacroIcon(macro.name)}
-            />
-          ))}
-        </div>
+        {/* Nutrition Details in Accordion */}
+        <Accordion type="multiple" defaultValue={["macros"]} className="w-full">
+          {/* Macronutrients Section */}
+          <AccordionItem value="macros" className="border-b-0">
+            <AccordionTrigger className="py-2 hover:no-underline">
+              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Macronutrients</h3>
+            </AccordionTrigger>
+            <AccordionContent>
+              <div className="mb-2">
+                {nutritionData.macros.map((macro) => (
+                  <NutritionProgressBar
+                    key={macro.name}
+                    name={macro.name}
+                    current={macro.current}
+                    target={macro.target}
+                    unit={macro.unit}
+                    color={macro.color}
+                    icon={getMacroIcon(macro.name)}
+                  />
+                ))}
+              </div>
+            </AccordionContent>
+          </AccordionItem>
 
-        <SidebarSeparator className="my-4" />
+          <SidebarSeparator className="my-2" />
 
-        {/* Water Intake */}
-        <div className="mb-6">
-          <h3 className="text-sm font-semibold mb-3 text-muted-foreground uppercase tracking-wider">Water Intake</h3>
-          <NutritionProgressBar
-            name="Water"
-            current={nutritionData.water.current}
-            target={nutritionData.water.target}
-            unit={nutritionData.water.unit}
-            color="bg-sky-500"
-            icon={<Droplet className="h-4 w-4 text-sky-500" />}
-          />
-        </div>
+          {/* Water Intake */}
+          <AccordionItem value="water" className="border-b-0">
+            <AccordionTrigger className="py-2 hover:no-underline">
+              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Water Intake</h3>
+            </AccordionTrigger>
+            <AccordionContent>
+              <div className="mb-2">
+                <NutritionProgressBar
+                  name="Water"
+                  current={nutritionData.water.current}
+                  target={nutritionData.water.target}
+                  unit={nutritionData.water.unit}
+                  color="bg-sky-500"
+                  icon={<Droplet className="h-4 w-4 text-sky-500" />}
+                />
+              </div>
+            </AccordionContent>
+          </AccordionItem>
 
-        {/* Micronutrients Section */}
-        <div className="mb-6">
-          <h3 className="text-sm font-semibold mb-3 text-muted-foreground uppercase tracking-wider">Micronutrients</h3>
-          {nutritionData.micronutrients.map((micro) => (
-            <NutritionProgressBar
-              key={micro.name}
-              name={micro.name}
-              current={micro.current}
-              target={micro.target}
-              unit={micro.unit}
-              color={micro.color}
-            />
-          ))}
-        </div>
+          <SidebarSeparator className="my-2" />
+
+          {/* Micronutrients Section */}
+          <AccordionItem value="micronutrients" className="border-b-0">
+            <AccordionTrigger className="py-2 hover:no-underline">
+              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Micronutrients</h3>
+            </AccordionTrigger>
+            <AccordionContent>
+              <div className="mb-2">
+                {nutritionData.micronutrients.map((micro) => (
+                  <NutritionProgressBar
+                    key={micro.name}
+                    name={micro.name}
+                    current={micro.current}
+                    target={micro.target}
+                    unit={micro.unit}
+                    color={micro.color}
+                  />
+                ))}
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+
+          <SidebarSeparator className="my-2" />
+          
+          {/* Logged Meals Section */}
+          <AccordionItem value="loggedMeals" className="border-b-0">
+            <AccordionTrigger className="py-2 hover:no-underline">
+              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Logged Meals</h3>
+            </AccordionTrigger>
+            <AccordionContent>
+              <div className="mb-2 space-y-2">
+                {nutritionData.loggedMeals.length === 0 ? (
+                  <p className="text-sm text-muted-foreground italic">No meals logged today</p>
+                ) : (
+                  nutritionData.loggedMeals.map((meal) => (
+                    <MealCard key={meal.id} meal={meal} />
+                  ))
+                )}
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
       </SidebarContent>
       <SidebarRail side="right" />
     </Sidebar>
