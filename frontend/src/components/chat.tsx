@@ -7,8 +7,89 @@ import { Textarea } from "@/components/ui/textarea"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { cn } from "@/lib/utils"
-import { sendChatMessage, extractNutritionInfo } from "@/lib/services/openai"
+import { sendChatMessage, extractNutritionInfo, NutritionInfo } from "@/lib/services/openai"
 import { useNutrition } from "@/lib/context/nutrition-context"
+import ReactMarkdown from "react-markdown"
+
+// Format nutrition information in a readable way using markdown
+function formatNutritionResponse(nutritionInfo: NutritionInfo): string {
+  let response = `## Nutrition Information for ${nutritionInfo.mealName || 'Your Meal'}
+
+`;
+  
+  // Calculate total calories and macros
+  const totalCalories = nutritionInfo.foodItems.reduce((sum, item) => sum + item.calories, 0);
+  const totalProtein = nutritionInfo.foodItems.reduce((sum, item) => sum + (item.protein || 0), 0);
+  const totalCarbs = nutritionInfo.foodItems.reduce((sum, item) => sum + (item.carbs || 0), 0);
+  const totalFat = nutritionInfo.foodItems.reduce((sum, item) => sum + (item.fat || 0), 0);
+  
+  // Add summary section with better spacing
+  response += `### Summary
+
+`;
+  response += `**Total Calories:** ${totalCalories} kcal  
+
+`;
+  response += `**Total Macros:**  
+- Protein: ${totalProtein.toFixed(1)}g  
+- Carbs: ${totalCarbs.toFixed(1)}g  
+- Fat: ${totalFat.toFixed(1)}g  
+
+`;
+  
+  // Add horizontal rule for visual separation
+  response += `---
+
+`;
+  
+  // Add detailed breakdown with improved spacing
+  response += `### Detailed Breakdown
+
+`;
+  
+  nutritionInfo.foodItems.forEach((item, index) => {
+    // Add separator between food items
+    if (index > 0) {
+      response += `---
+
+`;
+    }
+    
+    response += `#### ${item.name}
+
+`;
+    response += `**Calories:** ${item.calories} kcal\n\n`;
+    
+    // Group macros together with better formatting
+    response += `**Macros:**  \n`;
+    if (item.protein) response += `- Protein: ${item.protein}g  \n`;
+    if (item.carbs) response += `- Carbs: ${item.carbs}g  \n`;
+    if (item.fat) response += `- Fat: ${item.fat}g  \n`;
+    if (item.fiber) response += `- Fiber: ${item.fiber}g  \n`;
+    
+    response += '\n';
+    
+    // Add micronutrients if available with better spacing and formatting
+    const hasMicronutrients = item.vitaminD || item.iron || item.calcium || item.potassium;
+    if (hasMicronutrients) {
+      response += `**Micronutrients:**  \n`;
+      if (item.vitaminD) response += `- Vitamin D: ${item.vitaminD}μg  \n`;
+      if (item.iron) response += `- Iron: ${item.iron}mg  \n`;
+      if (item.calcium) response += `- Calcium: ${item.calcium}mg  \n`;
+      if (item.potassium) response += `- Potassium: ${item.potassium}mg  \n`;
+      response += '\n';
+    }
+  });
+  
+  // Add a final horizontal rule
+  response += `---
+
+`;
+  
+  response += `Does this look correct? Once you confirm, I'll update your tracker accordingly.`;
+  
+  return response;
+}
 
 // Typing indicator component with animated dots
 function TypingIndicator() {
@@ -167,9 +248,25 @@ export function Chat() {
 
       // Add system instruction about nutrition confirmation if we have nutrition data
       const systemContent = hasNutritionInfo
-        ? "You are a helpful nutrition assistant. You help users track their food intake and provide nutritional advice. Be friendly, supportive, and concise. I have extracted nutrition information from the user's input. Ask the user to confirm if the nutrition information looks correct before updating their tracker. DO NOT update their nutrition information until they confirm. If the user asks about topics unrelated to nutrition, food, health, or the nutrition tracking app, politely redirect them back to nutrition-related topics by saying something like 'Let's focus on your nutrition goals. Is there anything specific about your diet or nutrition that I can help with?'"
-        : "You are a helpful nutrition assistant. You help users track their food intake and provide nutritional advice. Be friendly, supportive, and concise. If the user mentions food, ask for specific details like portion size, preparation method, and specific ingredients. If the user asks about topics unrelated to nutrition, food, health, or the nutrition tracking app, politely redirect them back to nutrition-related topics by saying something like 'Let's focus on your nutrition goals. Is there anything specific about your diet or nutrition that I can help with?'"
+        ? "You are a helpful nutrition assistant. You help users track their food intake and provide nutritional advice. Be friendly, supportive, and concise. Format your responses using markdown for better readability - use headings (##), bullet points, bold text (**text**), and other formatting to make information clear and organized. I have extracted nutrition information from the user's input. Ask the user to confirm if the nutrition information looks correct before updating their tracker. DO NOT update their nutrition information until they confirm. If the user asks about topics unrelated to nutrition, food, health, or the nutrition tracking app, politely redirect them back to nutrition-related topics by saying something like 'Let's focus on your nutrition goals. Is there anything specific about your diet or nutrition that I can help with?'"
+        : "You are a helpful nutrition assistant. You help users track their food intake and provide nutritional advice. Be friendly, supportive, and concise. Format your responses using markdown for better readability - use headings (##), bullet points, bold text (**text**), and other formatting to make information clear and organized. If the user mentions food, ask for specific details like portion size, preparation method, and specific ingredients. If the user asks about topics unrelated to nutrition, food, health, or the nutrition tracking app, politely redirect them back to nutrition-related topics by saying something like 'Let's focus on your nutrition goals. Is there anything specific about your diet or nutrition that I can help with?'"
 
+      // Add custom styles to the document for better markdown rendering if not already added
+      if (!document.getElementById('nutrition-markdown-styles')) {
+        const style = document.createElement('style');
+        style.id = 'nutrition-markdown-styles';
+        style.innerHTML = `
+          .nutrition-message h2 { margin-top: 0.5rem; margin-bottom: 1rem; font-size: 1.25rem; }
+          .nutrition-message h3 { margin-top: 1.5rem; margin-bottom: 0.75rem; font-size: 1.1rem; }
+          .nutrition-message h4 { margin-top: 1.25rem; margin-bottom: 0.5rem; font-size: 1rem; }
+          .nutrition-message hr { height: 1px; background-color: rgba(100, 100, 100, 0.2); border: none; margin: 1rem 0; }
+          .nutrition-message ul, .nutrition-message ol { margin-top: 0.5rem; padding-left: 1.5rem; }
+          .nutrition-message li { margin-bottom: 0.375rem; }
+          .nutrition-message p { margin: 0.5rem 0; }
+        `;
+        document.head.appendChild(style);
+      }
+      
       // Convert message history to OpenAI format
       const messageHistory: OpenAI.Chat.ChatCompletionMessageParam[] = [
         {
@@ -190,14 +287,12 @@ export function Chat() {
 
       // If we have nutrition info, add it as a system message
       if (hasNutritionInfo) {
-        const mealName = nutritionInfo.mealName || "Unknown Meal";
-        const itemsDescription = nutritionInfo.foodItems.map(item => 
-          `${item.name}: ${item.calories} calories, ${item.protein || 0}g protein, ${item.carbs || 0}g carbs, ${item.fat || 0}g fat`
-        ).join("; ");
+        // Format nutrition information in a more readable way
+        const formattedNutrition = formatNutritionResponse(nutritionInfo);
         
         messageHistory.push({
           role: "system" as const,
-          content: `I have extracted the following nutrition information for ${mealName}: ${itemsDescription}. Ask the user to confirm if this information is correct before updating their tracker.`
+          content: `I have extracted nutrition information from the user's message. Present this information to the user in a clear, formatted way and ask them to confirm if it's correct: ${formattedNutrition}`
         });
       }
 
@@ -211,6 +306,11 @@ export function Chat() {
         content: response,
         timestamp: new Date(),
       };
+      
+      // If we have nutrition info, replace the response with our formatted version
+      if (hasNutritionInfo) {
+        assistantMessage.content = formatNutritionResponse(nutritionInfo);
+      }
       
       setMessages((prev) => [...prev, assistantMessage]);
       
@@ -251,15 +351,15 @@ export function Chat() {
     <div className="flex h-full flex-col">
       <div className="flex-1 overflow-hidden">
         <ScrollArea className="h-full">
-          <div className="flex flex-col gap-4 p-4 w-full">
+          <div className="flex flex-col gap-5 p-4 w-full">
             {messages.map((message) => (
               <div
                 key={message.id}
                 className={cn(
-                  "flex max-w-[80%] flex-col gap-2 rounded-lg px-3 py-2 text-sm",
+                  "flex max-w-[90%] flex-col gap-3 rounded-lg px-5 py-4 text-sm",
                   message.role === "user"
                     ? "ml-auto bg-primary text-primary-foreground"
-                    : "bg-muted"
+                    : "bg-card shadow-sm border border-border/30"
                 )}
               >
                 <div className="flex items-center gap-2">
@@ -268,11 +368,22 @@ export function Chat() {
                       <AvatarFallback>AI</AvatarFallback>
                     </Avatar>
                   )}
-                  <div className="break-words">{message.content}</div>
+                  <div className={cn(
+                    "break-words w-full",
+                    message.role === "assistant" ? "prose dark:prose-invert prose-sm max-w-none prose-headings:font-semibold prose-headings:text-foreground prose-p:text-foreground/90 prose-strong:text-foreground prose-strong:font-semibold prose-hr:my-4 prose-li:my-0 prose-li:mb-1 prose-p:my-2 nutrition-message" : ""
+                  )}>
+                    {message.role === "assistant" ? (
+                      <ReactMarkdown>
+                        {message.content}
+                      </ReactMarkdown>
+                    ) : (
+                      message.content
+                    )}
+                  </div>
                 </div>
                 <div
                   className={cn(
-                    "text-xs opacity-70",
+                    "text-xs opacity-70 mt-1",
                     message.role === "user" ? "text-right" : "text-left"
                   )}
                 >
