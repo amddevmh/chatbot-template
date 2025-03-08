@@ -20,6 +20,7 @@ class User(Document):
     last_name: Optional[str] = Field(None, description="User's last name")
     is_active: bool = Field(True, description="Whether the user account is active")
     is_verified: bool = Field(False, description="Whether the user's email is verified")
+    is_test_user: bool = Field(False, description="Whether this is a test user created for development/testing")
     verification_token: Optional[str] = Field(None, description="Token for email verification")
     roles: List[str] = Field(default_factory=lambda: ["user"], description="User roles")
     created_at: datetime = Field(default_factory=datetime.now)

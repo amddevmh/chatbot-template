@@ -52,23 +52,26 @@ def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta]
     return encoded_jwt
 
 
-def create_dev_token() -> str:
+def create_dev_token(username: str = "dev_test_user") -> str:
     """
     Create a permanent development token that doesn't expire
     
     This token is used for development and testing purposes only.
     When used, it will automatically create a test user in the database
     with the following properties if it doesn't already exist:
-    - Username: dev_test_user
-    - Email: dev@example.com
+    - Username: The provided username (defaults to "dev_test_user")
+    - Email: {username}@example.com
     - Verified: True
     - Active: True
+    
+    Args:
+        username: Optional custom username for the test user, defaults to "dev_test_user"
     
     Returns:
         JWT token string with no expiration
     """
-    # Create a token with a very long expiration (100 years)
-    to_encode = {"sub": "dev_test_user"}
+    # Create a token with the specified username
+    to_encode = {"sub": username}
     # No expiration date for dev token
     encoded_jwt = jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
     return encoded_jwt
@@ -126,41 +129,44 @@ async def get_current_user(token: Optional[str] = Depends(oauth2_scheme)) -> Use
     if not token:
         raise credentials_exception
     
-    # Check if this is the dev token
-    is_dev_token = False
-    try:
-        # Just decode without verification to check if it's our dev token
-        payload = jwt.decode(
-            token, 
-            settings.JWT_SECRET_KEY, 
-            algorithms=[settings.JWT_ALGORITHM],
-            options={"verify_exp": False}  # Don't verify expiration for this check
-        )
-        if payload.get("sub") == "dev_test_user":
-            is_dev_token = True
-    except JWTError:
-        pass
+    # Check if auth bypass is enabled and validate the token
+    if settings.AUTH_BYPASS_ENABLED:
+        try:
+            # Decode without verification to check username
+            payload = jwt.decode(
+                token, 
+                settings.JWT_SECRET_KEY, 
+                algorithms=[settings.JWT_ALGORITHM],
+                options={"verify_exp": False}  # Don't verify expiration for this check
+            )
+            username = payload.get("sub")
+            if username:  # Any username in a valid token can be used for dev/test
+                is_dev_token = True
+                dev_username = username
+        except JWTError:
+            pass
     
-    if is_dev_token:
+    if settings.AUTH_BYPASS_ENABLED and 'is_dev_token' in locals() and is_dev_token:
         # This is a dev token, get or create the test user
-        test_user = await User.find_one({"username": "dev_test_user"})
+        test_user = await User.find_one({"username": dev_username})
         
         if test_user is None:
-            # Create a test user
+            # Create a test user with the username from the token
             from app.services.user_service import UserService
             try:
                 test_user = await UserService.create_user(
-                    username="dev_test_user",
-                    email="dev@example.com",
+                    username=dev_username,
+                    email=f"{dev_username}@example.com",
                     password="devpassword123"
                 )
-                # Automatically verify the test user
+                # Mark as a test user and set appropriate flags
+                test_user.is_test_user = True
                 test_user.is_verified = True
                 test_user.is_active = True
                 await test_user.save()
             except ValueError:
                 # User might have been created in another process
-                test_user = await User.find_one({"username": "dev_test_user"})
+                test_user = await User.find_one({"username": dev_username})
                 if test_user is None:
                     raise credentials_exception
         

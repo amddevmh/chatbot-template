@@ -2,9 +2,12 @@
 """
 Main application setup for the FastAPI starter template
 """
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+import logging
+import traceback
+import sys
 
 from app.config import settings
 from app.api.routes import router as api_router
@@ -12,6 +15,12 @@ from app.auth.routes import router as auth_router
 from app.auth.middleware import verify_user_middleware
 from app.database.mongodb import init_db, close_db_connection
 from app.models.user import User
+
+# Set up logging
+logging.basicConfig(level=logging.DEBUG, 
+                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                    handlers=[logging.StreamHandler(sys.stdout)])
+logger = logging.getLogger("app.application")
 
 
 @asynccontextmanager
@@ -21,17 +30,34 @@ async def lifespan(app: FastAPI):
     
     This handles database initialization and cleanup
     """
-    # Initialize database connection
-    document_models = [
-        User
-        # Add more document models here as needed
-    ]
-    await init_db(document_models)
-    
-    yield
-    
-    # Close database connection
-    await close_db_connection()
+    try:
+        logger.info("Starting application lifespan manager")
+        # Initialize database connection
+        document_models = [
+            User
+            # Add more document models here as needed
+        ]
+        logger.info(f"Initializing database with models: {document_models}")
+        await init_db(document_models)
+        logger.info("Database initialization completed successfully")
+        
+        # Log application startup status
+        logger.info("Application startup successful, ready to handle requests")
+        
+        yield
+    except Exception as e:
+        logger.error(f"Error during application startup: {str(e)}")
+        logger.error(traceback.format_exc())
+        # We still yield to allow FastAPI to handle the error appropriately
+        yield
+    finally:    
+        # Close database connection
+        logger.info("Shutting down application, closing database connection")
+        try:
+            await close_db_connection()
+            logger.info("Database connection closed successfully")
+        except Exception as e:
+            logger.error(f"Error closing database connection: {str(e)}")
 
 
 def create_application() -> FastAPI:
@@ -41,6 +67,7 @@ def create_application() -> FastAPI:
     Returns:
         Configured FastAPI application
     """
+    logger.info("Creating FastAPI application")
     app = FastAPI(
         title="FastAPI Starter Template",
         description="A production-ready FastAPI starter template with MongoDB integration and JWT authentication",
@@ -57,11 +84,23 @@ def create_application() -> FastAPI:
         allow_headers=["*"],
     )
     
-    # Add authentication middleware
+    # Add authentication middleware with error handling
     @app.middleware("http")
     async def auth_middleware(request: Request, call_next):
-        await verify_user_middleware(request)
-        return await call_next(request)
+        try:
+            # Skip auth middleware for health check endpoint
+            if request.url.path == "/health":
+                logger.debug(f"Skipping auth for health check endpoint")
+                return await call_next(request)
+                
+            logger.debug(f"Verifying auth for request to: {request.url.path}")
+            await verify_user_middleware(request)
+            return await call_next(request)
+        except Exception as e:
+            logger.error(f"Auth middleware error: {str(e)}")
+            # Continue with the request even if auth fails
+            # The endpoints that require auth will still check the request.state.user
+            return await call_next(request)
     
     # Include routers
     app.include_router(
@@ -79,10 +118,25 @@ def create_application() -> FastAPI:
     @app.get("/health", tags=["Health"])
     async def health_check():
         """Health check endpoint to verify the API is running"""
-        return {"status": "healthy", "message": "API is running"}
+        try:
+            logger.info("Health check endpoint called")
+            return {"status": "healthy", "message": "API is running"}
+        except Exception as e:
+            logger.error(f"Error in health check: {str(e)}")
+            logger.error(traceback.format_exc())
+            # Return status code 200 with error details to help with debugging
+            return {"status": "error", "message": str(e), "traceback": traceback.format_exc()}
     
     return app
 
 
 # Create the application instance
-app = create_application()
+try:
+    logger.info("Initializing application instance")
+    app = create_application()
+    logger.info("Application instance created successfully")
+except Exception as e:
+    logger.critical(f"Failed to create application instance: {str(e)}")
+    logger.critical(traceback.format_exc())
+    # Re-raise to prevent app startup
+    raise

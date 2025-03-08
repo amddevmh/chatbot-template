@@ -4,15 +4,21 @@ Simple test to verify database connection
 """
 import asyncio
 import os
+import pytest
+import pytest_asyncio
 from motor.motor_asyncio import AsyncIOMotorClient
 from beanie import init_beanie
 from app.models.user import User
 from app.database.mongodb import init_db
 from dotenv import load_dotenv
 
-async def test_db_connection():
+# Configure pytest-asyncio
+pytest_asyncio_mode = "strict"
+
+@pytest.mark.asyncio
+async def test_db_connection(shared_db):
     """Test the database connection"""
-    print("Testing database connection...")
+    print("Testing database connection using shared fixture...")
     
     # Load environment variables
     load_dotenv("app/.env")
@@ -24,21 +30,14 @@ async def test_db_connection():
     print(f"MongoDB Database: {mongodb_db}")
     
     try:
-        # Try to initialize the database
-        print("Initializing database connection...")
-        await init_db([User])
-        print("✅ Database connection successful!")
+        # We're already connected via the shared_db fixture
+        print("✅ Database connection successful via shared fixture!")
         
         # Try to ping the database
         print("Pinging database...")
         client = AsyncIOMotorClient(mongodb_uri)
         await client.admin.command('ping')
         print("✅ Database ping successful!")
-        
-        # Try to initialize Beanie with the User model
-        print("Initializing Beanie ODM...")
-        await init_beanie(database=client[mongodb_db], document_models=[User])
-        print("✅ Beanie initialization successful!")
         
         # Try to count users
         print("Counting users in database...")
@@ -52,5 +51,5 @@ async def test_db_connection():
         print("\n=== DATABASE CONNECTION TEST FAILED ===")
 
 if __name__ == "__main__":
-    # Run the test
-    asyncio.run(test_db_connection())
+    # Run the test with pytest
+    pytest.main(['-xvs', __file__])

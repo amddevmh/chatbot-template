@@ -7,6 +7,11 @@ import json
 import httpx
 import sys
 import os
+import pytest
+import pytest_asyncio
+
+# Configure pytest-asyncio
+pytest_asyncio_mode = "strict"
 
 # Add the parent directory to the path so we can import app modules
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -20,11 +25,7 @@ import time
 import signal
 from contextlib import contextmanager
 
-async def setup_database():
-    """Initialize the database connection for testing"""
-    print("Initializing database connection...")
-    await init_db([User])
-    print("Database initialized successfully")
+# Database setup is now handled by the shared_db fixture in conftest.py
 
 @contextmanager
 def start_app_server():
@@ -45,7 +46,8 @@ def start_app_server():
         os.kill(server.pid, signal.SIGTERM)
         server.wait()
 
-async def test_hello_authenticated_service_integration():
+@pytest.mark.asyncio
+async def test_hello_authenticated_service_integration(shared_db):
     """
     Integration test for the hello_authenticated service with dev user authentication
     
@@ -55,8 +57,7 @@ async def test_hello_authenticated_service_integration():
     
     Note: This test will automatically create a dev_test_user in the database if it doesn't exist.
     """
-    # Setup the database
-    await setup_database()
+    print("Using shared database connection...")
     
     # Generate a dev token
     # When this token is used, it will automatically create a dev_test_user in the database if it doesn't exist
