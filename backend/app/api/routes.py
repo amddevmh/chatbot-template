@@ -11,14 +11,13 @@ from app.auth.security import User, get_current_user
 
 router = APIRouter()
 
-# Dependency providers
+# Global ChatService instance (created once at startup)
+chat_service = ChatService()
+
+# Dependency provider for HelloAuthenticatedService
 def get_hello_service():
     """Provide HelloAuthenticatedService instance"""
     return HelloAuthenticatedService()
-
-def get_chat_service():
-    """Provide ChatService instance"""
-    return ChatService()
 
 # Health check endpoint
 @router.get("/health")
@@ -40,12 +39,13 @@ async def say_hello_authenticated(
 @router.post("/chat", response_model=ChatResponse)
 async def chat(
     request: ChatRequest,
-    current_user: User = Depends(get_current_user),
-    service: ChatService = Depends(get_chat_service)
+    current_user: User = Depends(get_current_user)
 ):
-    """Handle chat requests with the LLM"""
+    """Handle chat requests with session memory"""
     try:
-        llm_response = await service.get_chat_response(request.message)
+        # Use username as session_id (or generate a unique ID)
+        session_id = current_user.username
+        llm_response = await chat_service.get_chat_response(request.message, session_id)
         return {"response": llm_response}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
