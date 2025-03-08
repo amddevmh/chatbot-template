@@ -14,8 +14,9 @@ from app.config import settings
 from app.models.user import User
 
 # OAuth2 scheme for token extraction
+# Note: We don't have a token URL since we're using dev tokens directly
 oauth2_scheme = OAuth2PasswordBearer(
-    tokenUrl=f"{settings.API_PREFIX}/auth/test-token",
+    tokenUrl="",  # No token URL needed for dev tokens
     auto_error=False  # Don't auto-raise errors for missing tokens (for bypass)
 )
 
@@ -56,7 +57,12 @@ def create_dev_token() -> str:
     Create a permanent development token that doesn't expire
     
     This token is used for development and testing purposes only.
-    It is mapped to a test user in the database.
+    When used, it will automatically create a test user in the database
+    with the following properties if it doesn't already exist:
+    - Username: dev_test_user
+    - Email: dev@example.com
+    - Verified: True
+    - Active: True
     
     Returns:
         JWT token string with no expiration
@@ -97,6 +103,9 @@ def verify_token(token: str) -> Optional[TokenData]:
 async def get_current_user(token: Optional[str] = Depends(oauth2_scheme)) -> User:
     """
     Get the current user from the token
+    
+    If the token is a dev token (sub="dev_test_user"), this function will
+    automatically create a test user in the database if it doesn't exist.
     
     Args:
         token: JWT token

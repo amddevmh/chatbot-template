@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Configuration settings for the nutrition assistant
+Configuration settings
 """
 from pydantic import BaseModel, Field
 from typing import Optional, List
@@ -18,7 +18,7 @@ load_dotenv(dotenv_path=os.path.join(app_dir, '.env'))
 class Settings(BaseModel):
     """Application settings"""
     # App settings
-    APP_NAME: str = "Nutrition Assistant API"
+    APP_NAME: str = "FastAPI Starter Template"
     DEBUG: bool = True
     API_PREFIX: str = "/api/v1"
     
@@ -35,7 +35,7 @@ class Settings(BaseModel):
     
     # Auth bypass for testing
     AUTH_BYPASS_ENABLED: bool = Field(default=True, description="Enable auth bypass for testing")
-    AUTH_BYPASS_SECRET: str = Field(default="test_secret_key", description="Secret key for auth bypass")
+    # AUTH_BYPASS_SECRET removed - use generate_dev_token.py instead
     
     @property
     def is_production(self) -> bool:

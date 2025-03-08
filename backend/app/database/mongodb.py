@@ -15,7 +15,7 @@ load_dotenv(dotenv_path=os.path.join(app_dir, '.env'))
 
 # MongoDB Atlas connection settings from environment variables
 MONGODB_URI = os.getenv("MONGODB_URI")
-DATABASE_NAME = os.getenv("MONGODB_DATABASE", "nutrition_assistant")
+DATABASE_NAME = os.getenv("MONGODB_DATABASE")
 
 # MongoDB client with server API version 1
 client = AsyncIOMotorClient(MONGODB_URI, server_api=ServerApi('1'))
@@ -25,6 +25,7 @@ db = client[DATABASE_NAME]
 async def init_db(document_models: List[Type[BaseModel]]) -> None:
     """Initialize the database connection and register document models"""
     try:
+        print("Connecting to MongoDB Atlas with URI: {MONGODB_URI}")
         # Test connection with a ping
         await client.admin.command('ping')
         print("Pinged your MongoDB Atlas deployment. Connection successful!")

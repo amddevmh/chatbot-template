@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Main application setup for the nutrition assistant
+Main application setup for the FastAPI starter template
 """
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,7 +12,6 @@ from app.auth.routes import router as auth_router
 from app.auth.middleware import verify_user_middleware
 from app.database.mongodb import init_db, close_db_connection
 from app.models.user import User
-from app.models.nutrition import NutritionProfile, Meal, NutritionTracker
 
 
 @asynccontextmanager
@@ -24,10 +23,8 @@ async def lifespan(app: FastAPI):
     """
     # Initialize database connection
     document_models = [
-        User,
-        NutritionProfile,
-        Meal,
-        NutritionTracker
+        User
+        # Add more document models here as needed
     ]
     await init_db(document_models)
     
@@ -45,9 +42,9 @@ def create_application() -> FastAPI:
         Configured FastAPI application
     """
     app = FastAPI(
-        title="Nutrition Assistant API",
-        description="API for the nutrition assistant application",
-        version="0.1.0",
+        title="FastAPI Starter Template",
+        description="A production-ready FastAPI starter template with MongoDB integration and JWT authentication",
+        version="1.0.0",
         lifespan=lifespan
     )
     
