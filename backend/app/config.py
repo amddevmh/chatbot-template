@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Configuration settings
+Configuration settings for the chatbot backend
 """
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import List
 import os
 import pathlib
 from datetime import timedelta
@@ -12,18 +12,18 @@ from dotenv import load_dotenv
 # Get the app directory path
 app_dir = pathlib.Path(__file__).parent
 
-# Load environment variables from .env file in the app directory
+# Load environment variables from .env file
 load_dotenv(dotenv_path=os.path.join(app_dir, '.env'))
 
 class Settings(BaseModel):
     """Application settings"""
     # App settings
-    APP_NAME: str = "FastAPI Starter Template"
+    APP_NAME: str = "Chatbot Backend Template"
     DEBUG: bool = True
     API_PREFIX: str = "/api/v1"
     
     # CORS settings
-    CORS_ORIGINS: List[str] = ["*"]  # In production, replace with specific origins
+    CORS_ORIGINS: List[str] = ["*"]  # Replace with specific origins in production
     
     # Environment
     ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
@@ -35,7 +35,10 @@ class Settings(BaseModel):
     
     # Auth bypass for testing
     AUTH_BYPASS_ENABLED: bool = Field(default=True, description="Enable auth bypass for testing")
-    # AUTH_BYPASS_SECRET removed - use generate_dev_token.py instead
+    
+    # LLM settings
+    OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
+    LLM_MODEL: str = os.getenv("LLM_MODEL", "gpt-4o-mini")  # Default model, configurable
     
     @property
     def is_production(self) -> bool:
