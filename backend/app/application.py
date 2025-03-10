@@ -4,6 +4,7 @@ Main application setup for the FastAPI starter template
 """
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.models import SecuritySchemeType
 from contextlib import asynccontextmanager
 import logging
 import traceback
@@ -72,8 +73,35 @@ def create_application() -> FastAPI:
         title="FastAPI Starter Template",
         description="A production-ready FastAPI starter template with MongoDB integration and JWT authentication",
         version="1.0.0",
-        lifespan=lifespan
+        lifespan=lifespan,
+        # Define tags for API documentation
+        openapi_tags=[
+            {"name": "Authentication", "description": "Authentication endpoints"},
+            {"name": "API", "description": "API endpoints"},
+            {"name": "Health", "description": "Health check endpoint"}
+        ],
+        swagger_ui_parameters={"persistAuthorization": True}
     )
+    
+    # Add security definitions for Swagger UI
+    app.swagger_ui_init_oauth = {
+        "usePkceWithAuthorizationCodeGrant": True
+    }
+    
+    # Define the apiKey security scheme for Bearer token
+    app.openapi_components = {
+        "securitySchemes": {
+            "apikey": {
+                "type": "apiKey",
+                "in": "header",
+                "name": "Authorization",
+                "description": "Type in the *'Value'* input box below: **'Bearer &lt;JWT&gt;'**, where JWT is the token"
+            }
+        }
+    }
+    
+    # Apply security globally to all endpoints
+    app.openapi_security = [{"apikey": []}]
     
     # Configure CORS
     app.add_middleware(

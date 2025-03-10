@@ -72,13 +72,36 @@ async def verify_user_middleware(request: Request) -> None:
                 headers={"WWW-Authenticate": "Bearer"},
             )
             
-        # Verify token
-        token_data = verify_token(token)
-        
-        if token_data is None:
+        # Verify token with enhanced debugging
+        try:
+            print(f"\n=== VERIFYING TOKEN IN MIDDLEWARE ===\n")
+            print(f"Token: {token[:10]}...")
+            print(f"JWT_SECRET_KEY: {settings.JWT_SECRET_KEY[:5]}...")
+            print(f"JWT_ALGORITHM: {settings.JWT_ALGORITHM}")
+            
+            # Debug decode without verification
+            debug_payload = jwt.decode(
+                token, 
+                options={"verify_signature": False}
+            )
+            print(f"Token payload (without verification): {debug_payload}")
+            
+            # Actual verification
+            token_data = verify_token(token)
+            print(f"Token verification result: {token_data}")
+            
+            if token_data is None:
+                print("Token verification failed!")
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid token or expired token",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+        except Exception as e:
+            print(f"Token verification exception: {str(e)}")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid token or expired token",
+                detail=f"Token verification error: {str(e)}",
                 headers={"WWW-Authenticate": "Bearer"},
             )
             

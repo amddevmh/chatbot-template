@@ -5,20 +5,17 @@ Security utilities for JWT authentication
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional, Union
 
-from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
+from fastapi import Depends, HTTPException, status, Header
+from fastapi.security import APIKeyHeader
 from jose import JWTError, jwt
 from pydantic import BaseModel
+from typing import Annotated
 
 from app.config import settings
 from app.models.user import User
 
-# OAuth2 scheme for token extraction
-# Note: We don't have a token URL since we're using dev tokens directly
-oauth2_scheme = OAuth2PasswordBearer(
-    tokenUrl="",  # No token URL needed for dev tokens
-    auto_error=False  # Don't auto-raise errors for missing tokens (for bypass)
-)
+# API Key header for token extraction
+api_key_header = APIKeyHeader(name="Authorization", auto_error=False)
 
 # Token models
 class Token(BaseModel):
@@ -103,7 +100,7 @@ def verify_token(token: str) -> Optional[TokenData]:
     except JWTError:
         return None
 
-async def get_current_user(token: Optional[str] = Depends(oauth2_scheme)) -> User:
+async def get_current_user(authorization: Optional[str] = Depends(api_key_header)) -> User:
     """
     Get the current user from the token
     
@@ -126,8 +123,14 @@ async def get_current_user(token: Optional[str] = Depends(oauth2_scheme)) -> Use
     )
     
     # Check for token
-    if not token:
+    if not authorization:
         raise credentials_exception
+        
+    # Extract token from Bearer header
+    if authorization.startswith("Bearer "):
+        token = authorization[7:]
+    else:
+        token = authorization  # Try to use the raw value if no Bearer prefix
     
     # Check if auth bypass is enabled and validate the token
     if settings.AUTH_BYPASS_ENABLED:
