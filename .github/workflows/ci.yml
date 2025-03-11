@@ -31,11 +31,12 @@ jobs:
       
       - name: Install MongoDB Shell
         run: |
-          echo "Installing MongoDB Shell..."
-          wget -qO - https://www.mongodb.org/static/pgp/server-6.0.asc | sudo apt-key add -
-          echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu $(lsb_release -cs)/mongodb-org/6.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-6.0.list
-          sudo apt-get update
-          sudo apt-get install -y mongodb-org-shell
+          echo "Installing MongoDB Shell using direct download..."
+          # Download the MongoDB Shell binary directly
+          wget https://downloads.mongodb.com/compass/mongosh-1.10.6-linux-x64.tgz
+          tar -xvf mongosh-1.10.6-linux-x64.tgz
+          sudo mv mongosh-1.10.6-linux-x64/bin/mongosh /usr/local/bin/
+          mongosh --version
           
       - name: Verify MongoDB Atlas Connection with MongoDB Shell
         env:
