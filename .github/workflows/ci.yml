@@ -6,12 +6,6 @@ on:
   pull_request:
   workflow_dispatch:
 
-env:
-  # Set environment variables for MongoDB Atlas GitHub Action
-  MONGODB_ATLAS_PUBLIC_API_KEY: ${{ secrets.MONGODB_ATLAS_PUBLIC_API_KEY }}
-  MONGODB_ATLAS_PRIVATE_API_KEY: ${{ secrets.MONGODB_ATLAS_PRIVATE_API_KEY }}
-  MONGODB_ATLAS_PROJECT_ID: ${{ secrets.MONGODB_ATLAS_PROJECT_ID }}
-
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -132,6 +126,10 @@ jobs:
           # Then try a database connection test to specifically debug the connection issue
           echo "\nTesting database connection specifically..."
           python -m pytest tests/test_db_connection.py -v
+
+          # Then run all tests
+          echo "\nRunning all tests..."
+          python -m pytest tests -v
         env:
           MONGODB_URI: ${{ secrets.MONGODB_URI }}
           MONGODB_DATABASE: ${{ secrets.MONGODB_DATABASE }}
