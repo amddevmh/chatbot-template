@@ -1,0 +1,46 @@
+name: Deploy (Generic Template)
+
+# This is a template file for deploying to any cloud provider
+# Copy and customize this file for your specific cloud provider
+# See deploy-railway.yml for a specific implementation example
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    branches: [main]
+    types: [completed]
+  # Allow manual triggering
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        
+      - name: Download artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: app-code
+          path: .
+        if: github.event_name == 'workflow_run'
+        
+      # CUSTOMIZE BELOW STEPS FOR YOUR CLOUD PROVIDER
+      
+      - name: Setup cloud provider CLI
+        run: echo "Install your cloud provider CLI here"
+        
+      - name: Configure cloud provider
+        run: echo "Configure your cloud provider authentication here"
+        env:
+          # Define your secrets here
+          CLOUD_API_KEY: ${{ secrets.CLOUD_API_KEY }}
+          
+      - name: Deploy application
+        run: echo "Run your deployment command here"
+        
+      - name: Verify deployment
+        run: echo "Verify your deployment was successful"
