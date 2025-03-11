@@ -2,10 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [ main, develop, prepare-template ]
   pull_request:
-    branches: [ main, develop, prepare-template ]
-  # Add workflow_dispatch to allow manual triggering
   workflow_dispatch:
 
 jobs:
