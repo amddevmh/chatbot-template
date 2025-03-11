@@ -120,13 +120,10 @@ jobs:
         working-directory: ./backend
         run: |
           echo "Running tests with MongoDB Atlas"
-          # Run just the auth tests first to verify basic functionality
-          python -m pytest tests/test_auth_dev_users.py -v
-          
-          # Then try a database connection test to specifically debug the connection issue
-          echo "\nTesting database connection specifically..."
+          # Run database connection test first to verify connectivity
+          echo "Testing database connection..."
           python -m pytest tests/test_db_connection.py -v
-
+          
           # Then run all tests
           echo "\nRunning all tests..."
           python -m pytest tests -v
@@ -134,6 +131,7 @@ jobs:
           MONGODB_URI: ${{ secrets.MONGODB_URI }}
           MONGODB_DATABASE: ${{ secrets.MONGODB_DATABASE }}
           JWT_SECRET_KEY: ${{ secrets.JWT_SECRET_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ENVIRONMENT: test
           AUTH_BYPASS_ENABLED: "true"
           
