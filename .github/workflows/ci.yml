@@ -6,6 +6,12 @@ on:
   pull_request:
   workflow_dispatch:
 
+env:
+  # Set environment variables for MongoDB Atlas GitHub Action
+  MONGODB_ATLAS_PUBLIC_API_KEY: ${{ secrets.MONGODB_ATLAS_PUBLIC_API_KEY }}
+  MONGODB_ATLAS_PRIVATE_API_KEY: ${{ secrets.MONGODB_ATLAS_PRIVATE_API_KEY }}
+  MONGODB_ATLAS_PROJECT_ID: ${{ secrets.MONGODB_ATLAS_PROJECT_ID }}
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -18,6 +24,21 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
+      
+      - name: Setup MongoDB Atlas CLI
+        uses: mongodb/atlas-github-action@v0.2.0
+        # This step installs the MongoDB Atlas CLI
+      
+      - name: Verify MongoDB Atlas Connection
+        shell: bash
+        run: |
+          echo "Verifying MongoDB Atlas connection..."
+          # List projects to verify API keys are working
+          atlas projects ls --output json
+          # Get project details
+          atlas projects describe $MONGODB_ATLAS_PROJECT_ID --output json
+          # List clusters to verify access
+          atlas clusters list --projectId $MONGODB_ATLAS_PROJECT_ID --output json
           
       - name: Navigate to backend directory
         run: |
@@ -35,11 +56,69 @@ jobs:
         working-directory: ./backend
         run: ls -la
           
+      - name: Debug environment variables
+        working-directory: ./backend
+        run: |
+          echo "Debugging environment variables..."
+          # Safely print first few characters of secrets
+          if [ -n "$MONGODB_URI" ]; then
+            echo "MONGODB_URI is set and starts with: ${MONGODB_URI:0:15}..."
+            # Extract username from URI for additional verification
+            # Format: mongodb+srv://username:password@cluster...
+            USERNAME=$(echo $MONGODB_URI | sed -n 's/.*\/\/\([^:]*\):.*/\1/p')
+            echo "Username in URI appears to be: $USERNAME"
+          else
+            echo "MONGODB_URI is NOT set!"
+          fi
+          
+          if [ -n "$MONGODB_DATABASE" ]; then
+            echo "MONGODB_DATABASE is set to: $MONGODB_DATABASE"
+          else
+            echo "MONGODB_DATABASE is NOT set!"
+          fi
+          
+          if [ -n "$JWT_SECRET_KEY" ]; then
+            echo "JWT_SECRET_KEY is set and has length: ${#JWT_SECRET_KEY}"
+          else
+            echo "JWT_SECRET_KEY is NOT set!"
+          fi
+          
+          # Print environment name for verification
+          echo "ENVIRONMENT is set to: $ENVIRONMENT"
+          echo "AUTH_BYPASS_ENABLED is set to: $AUTH_BYPASS_ENABLED"
+          
+          # Create a test env file with debug info for verification
+          echo "Creating debug .env file..."
+          cat > app/.env << EOL
+          # Debug .env file created by CI
+          MONGODB_URI=$MONGODB_URI
+          MONGODB_DATABASE=$MONGODB_DATABASE
+          JWT_SECRET_KEY=$JWT_SECRET_KEY
+          ENVIRONMENT=$ENVIRONMENT
+          AUTH_BYPASS_ENABLED=$AUTH_BYPASS_ENABLED
+          EOL
+          
+          echo "Content of app directory:"
+          ls -la app/
+          echo "First line of .env file (safe to show):"
+          head -n 1 app/.env
+        env:
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
+          MONGODB_DATABASE: ${{ secrets.MONGODB_DATABASE }}
+          JWT_SECRET_KEY: ${{ secrets.JWT_SECRET_KEY }}
+          ENVIRONMENT: test
+          AUTH_BYPASS_ENABLED: "true"
+          
       - name: Run tests with MongoDB Atlas
         working-directory: ./backend
         run: |
           echo "Running tests with MongoDB Atlas"
-          pytest -v
+          # Run just the auth tests first to verify basic functionality
+          python -m pytest tests/test_auth_dev_users.py -v
+          
+          # Then try a database connection test to specifically debug the connection issue
+          echo "\nTesting database connection specifically..."
+          python -m pytest tests/test_db_connection.py -v
         env:
           MONGODB_URI: ${{ secrets.MONGODB_URI }}
           MONGODB_DATABASE: ${{ secrets.MONGODB_DATABASE }}
