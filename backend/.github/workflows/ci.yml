@@ -5,13 +5,23 @@ on:
     branches: [ main, develop, prepare-template ]
   pull_request:
     branches: [ main, develop, prepare-template ]
+  # Add workflow_dispatch to allow manual triggering
+  workflow_dispatch:
 
 jobs:
   test:
     runs-on: ubuntu-latest
     
+    # Add MongoDB service container for testing
+    services:
+      mongodb:
+        image: mongo:6.0
+        ports:
+          - 27017:27017
+    
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v3
       
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -23,13 +33,41 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           
-      - name: Run tests
+      - name: List files in directory
+        run: ls -la
+          
+      - name: Check for MongoDB secrets
+        id: check_secrets
         run: |
-          pytest
+          if [ "${{ secrets.MONGODB_URI }}" != "" ]; then
+            echo "Using MongoDB Atlas for testing"
+            echo "has_mongodb_secrets=true" >> $GITHUB_OUTPUT
+          else
+            echo "Using local MongoDB for testing"
+            echo "has_mongodb_secrets=false" >> $GITHUB_OUTPUT
+          fi
+          
+      - name: Run tests with MongoDB Atlas
+        if: steps.check_secrets.outputs.has_mongodb_secrets == 'true'
+        run: |
+          echo "Running tests with MongoDB Atlas"
+          pytest -v
         env:
           MONGODB_URI: ${{ secrets.MONGODB_URI }}
-          MONGODB_DATABASE: ${{ secrets.MONGODB_DATABASE }}
-          JWT_SECRET_KEY: ${{ secrets.JWT_SECRET_KEY }}
+          MONGODB_DATABASE: ${{ secrets.MONGODB_DATABASE || 'test_db' }}
+          JWT_SECRET_KEY: ${{ secrets.JWT_SECRET_KEY || 'test_secret_key' }}
+          ENVIRONMENT: test
+          AUTH_BYPASS_ENABLED: "true"
+          
+      - name: Run tests with local MongoDB
+        if: steps.check_secrets.outputs.has_mongodb_secrets != 'true'
+        run: |
+          echo "Running tests with local MongoDB"
+          pytest -v
+        env:
+          MONGODB_URI: "mongodb://localhost:27017"
+          MONGODB_DATABASE: "test_db"
+          JWT_SECRET_KEY: "test_secret_key"
           ENVIRONMENT: test
           AUTH_BYPASS_ENABLED: "true"
           
