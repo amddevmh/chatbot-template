@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """
-Simplified test script for user authentication
+Test basic user authentication functionality with dev token
+
+This test verifies that:
+1. We can generate a development token
+2. The token can be used to authenticate as a dev user
+3. The authenticated user has the expected properties
 """
 import asyncio
 import sys
@@ -14,13 +19,7 @@ from app.auth.security import create_dev_token, get_current_user
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_user_auth(shared_db):
-    """Test basic user authentication functionality with dev token
-    
-    This test verifies that:
-    1. We can generate a development token
-    2. The token can be used to authenticate as a dev user
-    3. The authenticated user has the expected properties
-    """
+   
     print("Using shared database connection...")
     
     # Generate a dev token

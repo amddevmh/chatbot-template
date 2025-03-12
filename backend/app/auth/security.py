@@ -54,7 +54,7 @@ def create_dev_token(username: str = "dev_test_user") -> str:
     Create a permanent development token that doesn't expire
     
     This token is used for development and testing purposes only.
-    When used, it will automatically create a test user in the database
+    When used, method get_current_user will automatically create a test user in the database
     with the following properties if it doesn't already exist:
     - Username: The provided username (defaults to "dev_test_user")
     - Email: {username}@example.com
