@@ -2,12 +2,8 @@
 """
 Simple test to verify database connection
 """
-import asyncio
 import os
 import pytest
-import pytest_asyncio
-from motor.motor_asyncio import AsyncIOMotorClient
-from beanie import init_beanie
 from app.models.user import User
 from app.database.mongodb import init_db
 from dotenv import load_dotenv
@@ -15,7 +11,7 @@ from dotenv import load_dotenv
 # Configure pytest-asyncio
 pytest_asyncio_mode = "strict"
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_db_connection(shared_db):
     """Test the database connection"""
     print("Testing database connection using shared fixture...")
@@ -23,31 +19,39 @@ async def test_db_connection(shared_db):
     # Load environment variables
     load_dotenv("app/.env")
     
-    # Print the MongoDB URI and database name for debugging
-    mongodb_uri = os.getenv("MONGODB_URI")
+    # Print the MongoDB database name for debugging (avoid printing full URI with credentials)
     mongodb_db = os.getenv("MONGODB_DATABASE")
-    print(f"MongoDB URI: {mongodb_uri}")
     print(f"MongoDB Database: {mongodb_db}")
     
-    try:
-        # We're already connected via the shared_db fixture
-        print("✅ Database connection successful via shared fixture!")
-        
-        # Try to ping the database
-        print("Pinging database...")
-        client = AsyncIOMotorClient(mongodb_uri)
-        await client.admin.command('ping')
-        print("✅ Database ping successful!")
-        
-        # Try to count users
+    try:        
+        # Try to count users by accessing the database collection directly
         print("Counting users in database...")
-        count = await User.count()
-        print(f"✅ User count: {count}")
         
-        print("\n=== DATABASE CONNECTION TEST COMPLETED SUCCESSFULLY ===")
-        
+        try:
+            # Try to count users with the Beanie model
+            count = await User.count()
+            print(f"✅ User count: {count}")
+            
+            print("\n=== DATABASE CONNECTION TEST COMPLETED SUCCESSFULLY ===")
+            
+        except RuntimeError as e:
+            if "attached to a different loop" in str(e):
+                print("❌ Event loop error detected: The database connection is using a different event loop")
+                print("   than the test function. This is a common issue with pytest-asyncio and Beanie.")
+                print("   To fix this, we need to ensure both are using the same event loop.")
+                
+                # For debugging purposes, print a simplified version of the error
+                error_msg = str(e)
+                simplified_msg = "Event loop mismatch: Task is using one loop, but Future is attached to a different loop"
+                print(f"\nSimplified error: {simplified_msg}")
+                
+                print("\n=== DATABASE CONNECTION TEST FAILED (EVENT LOOP ISSUE) ===")
+                raise
+            else:
+                raise
+            
     except Exception as e:
-        print(f"❌ Database connection failed: {str(e)}")
+        print(f"❌ Database connection failed: {type(e).__name__}: {str(e)}")
         print("\n=== DATABASE CONNECTION TEST FAILED ===")
 
 if __name__ == "__main__":

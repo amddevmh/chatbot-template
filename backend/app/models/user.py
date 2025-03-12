@@ -3,8 +3,8 @@
 User model for authentication and user management
 """
 from datetime import datetime
-from typing import Optional, List
-from pydantic import Field, EmailStr, validator
+from typing import Optional, List, Any, Dict
+from pydantic import Field, EmailStr, field_validator
 from beanie import Document, PydanticObjectId
 from passlib.context import CryptContext
 
@@ -13,8 +13,8 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 class User(Document):
     """User model for authentication and profile management"""
-    username: str = Field(..., description="Username for login", index=True)
-    email: EmailStr = Field(..., description="User's email address", index=True)
+    username: str = Field(..., description="Username for login", json_schema_extra={"index": True})
+    email: EmailStr = Field(..., description="User's email address", json_schema_extra={"index": True})
     hashed_password: str = Field(..., description="Hashed password")
     first_name: Optional[str] = Field(None, description="User's first name")
     last_name: Optional[str] = Field(None, description="User's last name")
@@ -26,8 +26,8 @@ class User(Document):
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
     
-    @validator('username')
-    def username_must_be_valid(cls, v):
+    @field_validator('username')
+    def username_must_be_valid(cls, v: str) -> str:
         """Validate username format"""
         if len(v) < 3:
             raise ValueError("Username must be at least 3 characters long")
