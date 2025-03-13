@@ -23,5 +23,3 @@ async def read_users_me(current_user: User = Depends(get_current_user)):
     Get current user information
     """
     return current_user
-
-# Test token endpoint removed - use generate_dev_token.py instead
