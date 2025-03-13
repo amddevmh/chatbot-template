@@ -19,9 +19,7 @@ jobs:
         with:
           python-version: '3.11'
       
-      - name: Setup MongoDB Atlas CLI
-        uses: mongodb/atlas-github-action@v0.2.0
-        # This step installs the MongoDB Atlas CLI
+      # MongoDB Shell is used for database connectivity
       
       - name: Install MongoDB Shell
         run: |
@@ -39,13 +37,6 @@ jobs:
           echo "Verifying MongoDB Atlas connection using MongoDB Shell..."
           echo 'db.runCommand({ ping: 1 })' | mongosh "$MONGODB_URI" --quiet
           echo "MongoDB connection successful!"
-          
-      - name: Verify MongoDB Atlas Connection with Atlas CLI
-        shell: bash
-        run: |
-          echo "Verifying MongoDB Atlas connection with Atlas CLI..."
-          # Try to list projects to verify API keys are working
-          atlas projects ls --output json || echo "Atlas CLI connection failed, but we can still proceed with MongoDB Shell"
           
       - name: Navigate to backend directory
         run: |
