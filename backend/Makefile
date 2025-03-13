@@ -27,24 +27,19 @@ install:
 .PHONY: test
 test:
 	@echo "Running all tests..."
-	@echo "\n=== Authentication Tests ===\n"
-	$(MAKE) test-auth
-	# Hello Authenticated Service Tests removed (now covered by integration tests)
-	@echo "\n=== Integration Tests ===\n"
-	$(MAKE) test-integration
-	@echo "\n=== All tests completed successfully! ===\n"
+	$(PYTHON) -m pytest $(TEST_DIR)
 
 # Run authentication test
 .PHONY: test-auth
 test-auth:
 	@echo "Running authentication tests..."
-	$(PYTHON) $(TEST_DIR)/test_user_auth.py
+	$(PYTHON) -m pytest $(TEST_DIR)/test_user_auth.py
 
 # Run integration test
 .PHONY: test-integration
 test-integration:
 	@echo "Running integration tests..."
-	$(PYTHON) $(TEST_DIR)/test_hello_integration.py
+	$(PYTHON) -m pytest $(TEST_DIR)/test_hello_integration.py
 
 
 # Run the application
