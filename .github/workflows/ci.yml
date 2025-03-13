@@ -11,6 +11,12 @@ jobs:
     runs-on: ubuntu-latest
     env:
       CI_DEBUG: false # Set to true to enable debug output across the workflow
+      MONGODB_URI: ${{ secrets.MONGODB_URI }}
+      MONGODB_DATABASE: ${{ secrets.MONGODB_DATABASE }}
+      JWT_SECRET_KEY: ${{ secrets.JWT_SECRET_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ENVIRONMENT: test
+      AUTH_BYPASS_ENABLED: "true"
     
     steps:
       - name: Checkout code
@@ -42,8 +48,6 @@ jobs:
           fi
           
       - name: Verify MongoDB Atlas Connection with MongoDB Shell
-        env:
-          MONGODB_URI: ${{ secrets.MONGODB_URI }}
         run: |
           # All debug messages in one block
           if [ "$CI_DEBUG" = "true" ]; then
@@ -93,7 +97,7 @@ jobs:
           fi
           
       - name: Debug environment variables
-        if: env.CI_DEBUG == 'true' # Only run when CI_DEBUG is true
+        if: env.CI_DEBUG == 'true'
         working-directory: ./backend
         run: |
           echo "===== Environment Variables Verification ====="
@@ -130,40 +134,10 @@ jobs:
           # Check environment configuration
           echo "✅ ENVIRONMENT is set to: $ENVIRONMENT"
           echo "✅ AUTH_BYPASS_ENABLED is set to: $AUTH_BYPASS_ENABLED"
-          
-          # Create a directory for environment files if it doesn't exist
-          mkdir -p app
-          
-          # Create a secure test env file with placeholders instead of actual values
-          echo "Creating secure debug .env file..."
-          cat > app/.env << EOL
-          # Debug .env file created by CI - CREDENTIALS MASKED FOR SECURITY
-          MONGODB_URI=mongodb+srv://****:****@cluster.example.mongodb.net/
-          MONGODB_DATABASE=$MONGODB_DATABASE
-          JWT_SECRET_KEY=****
-          OPENAI_API_KEY=****
-          ENVIRONMENT=$ENVIRONMENT
-          AUTH_BYPASS_ENABLED=$AUTH_BYPASS_ENABLED
-          EOL
-          
-          echo "Environment verification complete."
-        env:
-          MONGODB_URI: ${{ secrets.MONGODB_URI }}
-          MONGODB_DATABASE: ${{ secrets.MONGODB_DATABASE }}
-          JWT_SECRET_KEY: ${{ secrets.JWT_SECRET_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          ENVIRONMENT: test
-          AUTH_BYPASS_ENABLED: "true"
+          echo "✅ Environment verification complete ✅"
           
       - name: Run tests with MongoDB Atlas
         working-directory: ./backend
-        env:
-          MONGODB_URI: ${{ secrets.MONGODB_URI }}
-          MONGODB_DATABASE: ${{ secrets.MONGODB_DATABASE }}
-          JWT_SECRET_KEY: ${{ secrets.JWT_SECRET_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          ENVIRONMENT: test
-          AUTH_BYPASS_ENABLED: "true"
         run: |
           if [ "$CI_DEBUG" = "true" ]; then
             echo "Debug: Running tests with MongoDB Atlas..."
@@ -172,13 +146,8 @@ jobs:
             set -x # Enable command echo for debugging
           fi
           
-          # First test - always runs
+          # Run database connection test
           python -m pytest tests/test_db_connection.py -v
           
-          # Message for second test only in debug mode
-          if [ "$CI_DEBUG" = "true" ]; then
-            echo "\nRunning all tests (skipping test_hello_integration.py)..."
-          fi
-          
-          # Second test - always runs
+          # Run all other tests
           python -m pytest tests --ignore=tests/test_hello_integration.py -v
