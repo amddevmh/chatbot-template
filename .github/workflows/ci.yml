@@ -9,6 +9,8 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      CI_DEBUG: false # Set to true to enable debug output across the workflow
     
     steps:
       - name: Checkout code
@@ -23,102 +25,128 @@ jobs:
       
       - name: Install MongoDB Shell
         run: |
-          echo "Installing MongoDB Shell using direct download..."
-          # Download the MongoDB Shell binary directly
+          if [ "$CI_DEBUG" = "true" ]; then
+            echo "Debug: Installing MongoDB Shell..."
+            echo "Installing MongoDB Shell using direct download..."
+            set -x # Enable command echo for debugging
+          fi
+          
+          # Always execute these core commands
           wget https://downloads.mongodb.com/compass/mongosh-1.10.6-linux-x64.tgz
           tar -xvf mongosh-1.10.6-linux-x64.tgz
           sudo mv mongosh-1.10.6-linux-x64/bin/mongosh /usr/local/bin/
-          mongosh --version
+          
+          # Version check only in debug mode
+          if [ "$CI_DEBUG" = "true" ]; then
+            mongosh --version
+          fi
           
       - name: Verify MongoDB Atlas Connection with MongoDB Shell
         env:
           MONGODB_URI: ${{ secrets.MONGODB_URI }}
         run: |
-          echo "Verifying MongoDB Atlas connection using MongoDB Shell..."
+          # All debug messages in one block
+          if [ "$CI_DEBUG" = "true" ]; then
+            echo "Debug: Attempting MongoDB connection..."
+            echo "Verifying MongoDB Atlas connection using MongoDB Shell..."
+          fi
+          
+          # Core command - always runs
           echo 'db.runCommand({ ping: 1 })' | mongosh "$MONGODB_URI" --quiet
-          echo "MongoDB connection successful!"
+          
+          # Success message only in debug mode
+          if [ "$CI_DEBUG" = "true" ]; then
+            echo "MongoDB connection successful!"
+          fi
           
       - name: Navigate to backend directory
         run: |
+          # Debug messages in one block
+          if [ "$CI_DEBUG" = "true" ]; then
+            echo "Debug: Navigating to backend directory..."
+          fi
+          
+          # Core command - always runs
           cd backend
-          echo "Current directory: $(pwd)"
-          ls -la
+          
+          # Additional debug info
+          if [ "$CI_DEBUG" = "true" ]; then
+            echo "Current directory: $(pwd)"
+            ls -la
+          fi
           
       - name: Install dependencies
         working-directory: ./backend
         run: |
+          if [ "$CI_DEBUG" = "true" ]; then
+            echo "Debug: Installing Python dependencies..."
+            set -x # Enable command echo for debugging
+          fi
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           
       - name: List files in directory
         working-directory: ./backend
-        run: ls -la
+        run: |
+          if [ "$CI_DEBUG" = "true" ]; then
+            ls -la
+          fi
           
       - name: Debug environment variables
-        if: false # Set to 'false' to always skip this step
+        if: env.CI_DEBUG == 'true' # Only run when CI_DEBUG is true
         working-directory: ./backend
         run: |
-          echo "Debugging environment variables..."
-          # Safely print first few characters of secrets
+          echo "===== Environment Variables Verification ====="
+          
+          # Check database connection variables
           if [ -n "$MONGODB_URI" ]; then
-            echo "MONGODB_URI is set and starts with: ${MONGODB_URI:0:15}..."
-            # Extract username from URI for additional verification
-            # Format: mongodb+srv://username:password@cluster...
-            USERNAME=$(echo $MONGODB_URI | sed -n 's/.*\/\/\([^:]*\):.*/\1/p')
-            echo "Username in URI appears to be: $USERNAME"
+            echo "✅ MONGODB_URI is set"
+            # Only show protocol and hostname for security, mask credentials
+            SAFE_URI=$(echo "$MONGODB_URI" | sed -E 's/(mongodb\+srv:\/\/)[^@]*(@.*)/\1****\2/')
+            echo "   URI Pattern: $SAFE_URI"
           else
-            echo "MONGODB_URI is NOT set!"
+            echo "❌ MONGODB_URI is NOT set!"
           fi
           
           if [ -n "$MONGODB_DATABASE" ]; then
-            echo "MONGODB_DATABASE is set to: $MONGODB_DATABASE"
+            echo "✅ MONGODB_DATABASE is set to: $MONGODB_DATABASE"
           else
-            echo "MONGODB_DATABASE is NOT set!"
+            echo "❌ MONGODB_DATABASE is NOT set!"
           fi
           
+          # Check security variables
           if [ -n "$JWT_SECRET_KEY" ]; then
-            echo "JWT_SECRET_KEY is set and has length: ${#JWT_SECRET_KEY}"
+            echo "✅ JWT_SECRET_KEY is set and has length: ${#JWT_SECRET_KEY}"
           else
-            echo "JWT_SECRET_KEY is NOT set!"
+            echo "❌ JWT_SECRET_KEY is NOT set!"
           fi
           
-          # Print environment name for verification
-          echo "ENVIRONMENT is set to: $ENVIRONMENT"
-          echo "AUTH_BYPASS_ENABLED is set to: $AUTH_BYPASS_ENABLED"
+          if [ -n "$OPENAI_API_KEY" ]; then
+            echo "✅ OPENAI_API_KEY is set and has length: ${#OPENAI_API_KEY}"
+          else
+            echo "❌ OPENAI_API_KEY is NOT set!"
+          fi
           
-          # Create a test env file with debug info for verification
-          echo "Creating debug .env file..."
+          # Check environment configuration
+          echo "✅ ENVIRONMENT is set to: $ENVIRONMENT"
+          echo "✅ AUTH_BYPASS_ENABLED is set to: $AUTH_BYPASS_ENABLED"
+          
+          # Create a directory for environment files if it doesn't exist
+          mkdir -p app
+          
+          # Create a secure test env file with placeholders instead of actual values
+          echo "Creating secure debug .env file..."
           cat > app/.env << EOL
-          # Debug .env file created by CI
-          MONGODB_URI=$MONGODB_URI
+          # Debug .env file created by CI - CREDENTIALS MASKED FOR SECURITY
+          MONGODB_URI=mongodb+srv://****:****@cluster.example.mongodb.net/
           MONGODB_DATABASE=$MONGODB_DATABASE
-          JWT_SECRET_KEY=$JWT_SECRET_KEY
+          JWT_SECRET_KEY=****
+          OPENAI_API_KEY=****
           ENVIRONMENT=$ENVIRONMENT
           AUTH_BYPASS_ENABLED=$AUTH_BYPASS_ENABLED
           EOL
           
-          echo "Content of app directory:"
-          ls -la app/
-          echo "First line of .env file (safe to show):"
-          head -n 1 app/.env
-        env:
-          MONGODB_URI: ${{ secrets.MONGODB_URI }}
-          MONGODB_DATABASE: ${{ secrets.MONGODB_DATABASE }}
-          JWT_SECRET_KEY: ${{ secrets.JWT_SECRET_KEY }}
-          ENVIRONMENT: test
-          AUTH_BYPASS_ENABLED: "true"
-          
-      - name: Run tests with MongoDB Atlas
-        working-directory: ./backend
-        run: |
-          echo "Running tests with MongoDB Atlas"
-          # Run database connection test first to verify connectivity
-          echo "Testing database connection..."
-          python -m pytest tests/test_db_connection.py -v
-          
-          # Then run all tests except the one that starts a server process
-          echo "\nRunning all tests (skipping test_hello_integration.py)..."
-          python -m pytest tests --ignore=tests/test_hello_integration.py -v
+          echo "Environment verification complete."
         env:
           MONGODB_URI: ${{ secrets.MONGODB_URI }}
           MONGODB_DATABASE: ${{ secrets.MONGODB_DATABASE }}
@@ -126,3 +154,31 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ENVIRONMENT: test
           AUTH_BYPASS_ENABLED: "true"
+          
+      - name: Run tests with MongoDB Atlas
+        working-directory: ./backend
+        env:
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
+          MONGODB_DATABASE: ${{ secrets.MONGODB_DATABASE }}
+          JWT_SECRET_KEY: ${{ secrets.JWT_SECRET_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ENVIRONMENT: test
+          AUTH_BYPASS_ENABLED: "true"
+        run: |
+          if [ "$CI_DEBUG" = "true" ]; then
+            echo "Debug: Running tests with MongoDB Atlas..."
+            echo "Running tests with MongoDB Atlas"
+            echo "Testing database connection..."
+            set -x # Enable command echo for debugging
+          fi
+          
+          # First test - always runs
+          python -m pytest tests/test_db_connection.py -v
+          
+          # Message for second test only in debug mode
+          if [ "$CI_DEBUG" = "true" ]; then
+            echo "\nRunning all tests (skipping test_hello_integration.py)..."
+          fi
+          
+          # Second test - always runs
+          python -m pytest tests --ignore=tests/test_hello_integration.py -v
