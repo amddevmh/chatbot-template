@@ -35,50 +35,36 @@ jobs:
           tar -xvf mongosh-1.10.6-linux-x64.tgz
           sudo mv mongosh-1.10.6-linux-x64/bin/mongosh /usr/local/bin/
           
-      - name: Show MongoDB Shell version
-        if: env.CI_DEBUG == 'true'
-        run: |
-          mongosh --version
+          if [ "$CI_DEBUG" = "true" ]; then
+            mongosh --version
+            echo "Debug: Attempting MongoDB connection..."
+            echo "Verifying MongoDB Atlas connection using MongoDB Shell..."
+          fi
           
-      - name: Debug MongoDB Connection Info
-        if: env.CI_DEBUG == 'true'
-        run: |
-          echo "Debug: Attempting MongoDB connection..."
-          echo "Verifying MongoDB Atlas connection using MongoDB Shell..."
-          
-      - name: Verify MongoDB Atlas Connection with MongoDB Shell
-        run: |
-          echo 'db.runCommand({ ping: 1 })' | mongosh "$MONGODB_URI" --quiet
-          
-      - name: Confirm MongoDB Connection Success
-        if: env.CI_DEBUG == 'true'
-        run: |
+          echo 'db.runCommand({ ping: 1 })' | mongosh "$MONGODB_URI" --quiet          
           echo "✅ MongoDB connection successful!"
-          
-      - name: Debug Navigation Info
-        if: env.CI_DEBUG == 'true'
-        run: |
-          echo "Debug: Navigating to backend directory..."
           
       - name: Navigate to backend directory
         run: |
+          if [ "$CI_DEBUG" = "true" ]; then
+            echo "Debug: Navigating to backend directory..."
+          fi
+          
           cd backend
           
-      - name: Show Backend Directory Info
-        if: env.CI_DEBUG == 'true'
-        run: |
-          echo "Current directory: $(pwd)"
-          ls -la
-          
-      - name: Debug Dependencies Info
-        if: env.CI_DEBUG == 'true'
-        run: |
-          echo "Debug: Installing Python dependencies..."
-          set -x # Enable command echo for debugging
+          if [ "$CI_DEBUG" = "true" ]; then
+            echo "Current directory: $(pwd)"
+            ls -la
+          fi
           
       - name: Install dependencies
         working-directory: ./backend
         run: |
+          if [ "$CI_DEBUG" = "true" ]; then
+            echo "Debug: Installing Python dependencies..."
+            set -x # Enable command echo for debugging
+          fi
+          
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           
@@ -128,19 +114,11 @@ jobs:
           echo "✅ AUTH_BYPASS_ENABLED is set to: $AUTH_BYPASS_ENABLED"
           echo "✅ Environment verification complete ✅"
           
-      - name: Debug Test Info
-        if: env.CI_DEBUG == 'true'
+      - name: Run tests with MongoDB Atlas
         working-directory: ./backend
         run: |
-          echo "Debug: Running tests with MongoDB Atlas..."
-          echo "Running tests with MongoDB Atlas"
-          echo "Testing database connection..."
-          set -x # Enable command echo for debugging
+          # Run database connection test
+          python -m pytest tests/test_db_connection.py -v
           
-      - name: Run database connection test
-        working-directory: ./backend
-        run: python -m pytest tests/test_db_connection.py -v
-          
-      - name: Run all other tests
-        working-directory: ./backend
-        run: python -m pytest tests --ignore=tests/test_hello_integration.py -v
+          # Run all other tests
+          python -m pytest tests --ignore=tests/test_hello_integration.py -v
