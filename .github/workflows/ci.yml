@@ -31,70 +31,62 @@ jobs:
       
       - name: Install MongoDB Shell
         run: |
-          if [ "$CI_DEBUG" = "true" ]; then
-            echo "Debug: Installing MongoDB Shell..."
-            echo "Installing MongoDB Shell using direct download..."
-            set -x # Enable command echo for debugging
-          fi
-          
-          # Always execute these core commands
           wget https://downloads.mongodb.com/compass/mongosh-1.10.6-linux-x64.tgz
           tar -xvf mongosh-1.10.6-linux-x64.tgz
           sudo mv mongosh-1.10.6-linux-x64/bin/mongosh /usr/local/bin/
           
-          # Version check only in debug mode
-          if [ "$CI_DEBUG" = "true" ]; then
-            mongosh --version
-          fi
+      - name: Show MongoDB Shell version
+        if: env.CI_DEBUG == 'true'
+        run: |
+          mongosh --version
+          
+      - name: Debug MongoDB Connection Info
+        if: env.CI_DEBUG == 'true'
+        run: |
+          echo "Debug: Attempting MongoDB connection..."
+          echo "Verifying MongoDB Atlas connection using MongoDB Shell..."
           
       - name: Verify MongoDB Atlas Connection with MongoDB Shell
         run: |
-          # All debug messages in one block
-          if [ "$CI_DEBUG" = "true" ]; then
-            echo "Debug: Attempting MongoDB connection..."
-            echo "Verifying MongoDB Atlas connection using MongoDB Shell..."
-          fi
-          
-          # Core command - always runs
           echo 'db.runCommand({ ping: 1 })' | mongosh "$MONGODB_URI" --quiet
           
-          # Success message only in debug mode
-          if [ "$CI_DEBUG" = "true" ]; then
-            echo "MongoDB connection successful!"
-          fi
+      - name: Confirm MongoDB Connection Success
+        if: env.CI_DEBUG == 'true'
+        run: |
+          echo "✅ MongoDB connection successful!"
+          
+      - name: Debug Navigation Info
+        if: env.CI_DEBUG == 'true'
+        run: |
+          echo "Debug: Navigating to backend directory..."
           
       - name: Navigate to backend directory
         run: |
-          # Debug messages in one block
-          if [ "$CI_DEBUG" = "true" ]; then
-            echo "Debug: Navigating to backend directory..."
-          fi
-          
-          # Core command - always runs
           cd backend
           
-          # Additional debug info
-          if [ "$CI_DEBUG" = "true" ]; then
-            echo "Current directory: $(pwd)"
-            ls -la
-          fi
+      - name: Show Backend Directory Info
+        if: env.CI_DEBUG == 'true'
+        run: |
+          echo "Current directory: $(pwd)"
+          ls -la
+          
+      - name: Debug Dependencies Info
+        if: env.CI_DEBUG == 'true'
+        run: |
+          echo "Debug: Installing Python dependencies..."
+          set -x # Enable command echo for debugging
           
       - name: Install dependencies
         working-directory: ./backend
         run: |
-          if [ "$CI_DEBUG" = "true" ]; then
-            echo "Debug: Installing Python dependencies..."
-            set -x # Enable command echo for debugging
-          fi
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           
       - name: List files in directory
         working-directory: ./backend
+        if: env.CI_DEBUG == 'true'
         run: |
-          if [ "$CI_DEBUG" = "true" ]; then
-            ls -la
-          fi
+          ls -la
           
       - name: Debug environment variables
         if: env.CI_DEBUG == 'true'
@@ -136,18 +128,19 @@ jobs:
           echo "✅ AUTH_BYPASS_ENABLED is set to: $AUTH_BYPASS_ENABLED"
           echo "✅ Environment verification complete ✅"
           
-      - name: Run tests with MongoDB Atlas
+      - name: Debug Test Info
+        if: env.CI_DEBUG == 'true'
         working-directory: ./backend
         run: |
-          if [ "$CI_DEBUG" = "true" ]; then
-            echo "Debug: Running tests with MongoDB Atlas..."
-            echo "Running tests with MongoDB Atlas"
-            echo "Testing database connection..."
-            set -x # Enable command echo for debugging
-          fi
+          echo "Debug: Running tests with MongoDB Atlas..."
+          echo "Running tests with MongoDB Atlas"
+          echo "Testing database connection..."
+          set -x # Enable command echo for debugging
           
-          # Run database connection test
-          python -m pytest tests/test_db_connection.py -v
+      - name: Run database connection test
+        working-directory: ./backend
+        run: python -m pytest tests/test_db_connection.py -v
           
-          # Run all other tests
-          python -m pytest tests --ignore=tests/test_hello_integration.py -v
+      - name: Run all other tests
+        working-directory: ./backend
+        run: python -m pytest tests --ignore=tests/test_hello_integration.py -v
