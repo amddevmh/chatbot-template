@@ -16,7 +16,13 @@ from app.database.mongodb import init_db
 from app.models.user import User
 
 # Configure pytest-asyncio
+# Using strict mode ensures proper async/await usage
 pytest_asyncio_mode = "strict"
+
+# IMPORTANT: Event Loop Configuration
+# The session-scoped event loop is critical when working with MongoDB and other async resources.
+# This ensures all async operations use the same event loop, preventing the
+# "RuntimeError: Task got Future attached to a different loop" error.
 
 @pytest_asyncio.fixture(scope="function")
 async def chat_service(shared_db):
@@ -48,6 +54,8 @@ async def chat_service(shared_db):
         except Exception as e:
             print(f"Warning: Error during chat_service cleanup: {e}")
 
+# Using session-scoped event loop to match the shared_db fixture
+# This is essential for MongoDB operations to work correctly
 @pytest.mark.asyncio(loop_scope="session")
 class TestChatService:
     """Test case for the ChatService class."""
