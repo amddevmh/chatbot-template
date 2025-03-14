@@ -20,8 +20,6 @@ langgraph==0.3.5
 # Explicitly include checkpoint packages with exact versions
 langgraph-checkpoint==2.0.19
 langgraph-checkpoint-mongodb==0.1.1
-# Add direct MongoDB support package
-langgraph-mongodb==0.0.1
 # JWT for token handling
 PyJWT>=2.8.0
 # HTTP client for integration tests
