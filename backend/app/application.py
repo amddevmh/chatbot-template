@@ -16,6 +16,7 @@ from app.auth.routes import router as auth_router
 from app.auth.middleware import verify_user_middleware
 from app.database.mongodb import init_db, close_db_connection
 from app.models.user import User
+from app.models.chat_session import ChatSessionMetadata
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG, 
@@ -35,7 +36,8 @@ async def lifespan(app: FastAPI):
         logger.info("Starting application lifespan manager")
         # Initialize database connection
         document_models = [
-            User
+            User,
+            ChatSessionMetadata
             # Add more document models here as needed
         ]
         logger.info(f"Initializing database with models: {document_models}")

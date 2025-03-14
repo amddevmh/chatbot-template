@@ -14,4 +14,13 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  // Define global variables for the browser environment
+  define: {
+    // Polyfill for process.env used by next-auth
+    'process.env': {
+      NODE_ENV: JSON.stringify(process.env.NODE_ENV || 'development'),
+      NEXTAUTH_URL: JSON.stringify('http://localhost:3000'),
+      // Add any other environment variables needed by next-auth here
+    },
+  },
 })

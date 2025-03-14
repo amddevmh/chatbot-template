@@ -18,10 +18,21 @@ from app.models.user import User
 # Configure pytest-asyncio
 pytest_asyncio_mode = "strict"
 
-@pytest_asyncio.fixture
+@pytest_asyncio.fixture(scope="function")
 async def chat_service(shared_db):
-    """Create a chat service instance for testing with proper cleanup."""
+    """Create a chat service instance for testing with proper cleanup.
+    
+    This fixture uses the shared_db fixture to ensure it's using the same event loop.
+    The function scope ensures a fresh ChatService for each test.
+    """
+    # Create the service
     service = ChatService()
+    
+    # Initialize the async memory using the current event loop
+    # This is critical to ensure we're using the same event loop as shared_db
+    print("Initializing async memory for ChatService...")
+    await service.initialize_async_memory()
+    print("Async memory initialized successfully")
     
     # Yield the service for test use
     yield service
@@ -33,10 +44,11 @@ async def chat_service(shared_db):
             # Clear any session data that might have been created
             if hasattr(service.memory, 'checkpoints'):
                 service.memory.checkpoints.clear()
+            print("Cleaned up ChatService memory")
         except Exception as e:
             print(f"Warning: Error during chat_service cleanup: {e}")
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 class TestChatService:
     """Test case for the ChatService class."""
     

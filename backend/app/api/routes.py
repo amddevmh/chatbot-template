@@ -5,6 +5,7 @@ API routes for the chatbot backend template
 from fastapi import APIRouter, Depends, HTTPException
 from app.models.hello import HelloAuthenticatedRequest, HelloAuthenticatedResponse
 from app.models.chat import ChatRequest, ChatResponse
+from app.models.chat_session import ChatSessionCreate, ChatSessionResponse, ChatSessionListResponse
 from app.services.hello_service import HelloAuthenticatedService
 from app.services.chat_service import ChatService
 from app.auth.security import User, get_current_user
@@ -12,38 +13,9 @@ from app.auth.security import User, get_current_user
 router = APIRouter()
 
 # Global ChatService instance (created once at startup)
-try:
-    print("Initializing ChatService...")
-    chat_service = ChatService()
-    print("ChatService initialized successfully")
-except Exception as e:
-    import traceback
-    print(f"ERROR initializing ChatService: {str(e)}")
-    print(f"Traceback: {traceback.format_exc()}")
-    # Create a mock implementation that works in test environments
-    class MockChatService:
-        """Mock implementation of ChatService for testing"""
-        async def get_chat_response(self, message: str, session_id: str) -> str:
-            print(f"Using MockChatService for session {session_id}")
-            print(f"Message received: {message}")
-            
-            # Simple mock responses based on input
-            if "name" in message.lower() and "?" in message:
-                if "Alex" in session_id:
-                    return "Your name is Alex."
-                elif "Taylor" in session_id:
-                    return "Your name is Taylor."
-                else:
-                    return "I remember you told me your name earlier."
-            elif "my name is" in message.lower():
-                name = message.split("is")[-1].strip().rstrip('.')
-                return f"Nice to meet you, {name}! I'll remember that."
-            else:
-                # Default response
-                return f"Mock response for testing. ChatService couldn't initialize due to: {str(e)}"
-    
-    print("Using MockChatService as fallback")
-    chat_service = MockChatService()
+print("Initializing ChatService...")
+chat_service = ChatService()
+print("ChatService initialized successfully")
 
 # Dependency provider for HelloAuthenticatedService
 def get_hello_service():
@@ -107,8 +79,38 @@ async def chat(
 ):
     """Handle chat requests with session memory"""
     try:
-        # Use provided session_id if available, otherwise use username
-        session_id = request.session_id if hasattr(request, 'session_id') and request.session_id else current_user.username
+        # Get or create a session ID
+        print(f"[DEBUG] Chat request received from user: {current_user.username}")
+        print(f"[DEBUG] Request session_id: {request.session_id}")
+        
+        if request.session_id:
+            # Verify session belongs to user (simple check based on naming convention)
+            print(f"[DEBUG] Verifying session {request.session_id} belongs to user {current_user.username}")
+            if not request.session_id.startswith(f"{current_user.username}_"):
+                print(f"[DEBUG] Session verification failed: {request.session_id} does not belong to {current_user.username}")
+                raise HTTPException(
+                    status_code=403, 
+                    detail="You do not have permission to access this session"
+                )
+            session_id = request.session_id
+            print(f"[DEBUG] Using existing session: {session_id}")
+        else:
+            # No session ID provided, create a new session
+            print(f"[DEBUG] No session ID provided, creating new session for {current_user.username}")
+            try:
+                print(f"[DEBUG] Calling chat_service.create_session for {current_user.username}")
+                session = await chat_service.create_session(
+                    username=current_user.username,
+                    session_name="Chat Session"
+                )
+                session_id = session["session_id"]
+                print(f"[DEBUG] Created new session successfully: {session_id}")
+            except Exception as session_err:
+                # If session creation fails, fall back to username as session ID
+                print(f"[DEBUG] Failed to create session: {str(session_err)}")
+                print(f"[DEBUG] Traceback: {traceback.format_exc()}")
+                session_id = current_user.username
+                print(f"[DEBUG] Falling back to username as session ID: {session_id}")
         
         # Log information about the request for debugging
         print(f"Processing chat request from user: {current_user.username}")
@@ -116,7 +118,9 @@ async def chat(
         print(f"Message: {request.message}")
         
         llm_response = await chat_service.get_chat_response(request.message, session_id)
-        return {"response": llm_response}
+        return {"response": llm_response, "session_id": session_id}
+    except HTTPException:
+        raise
     except Exception as e:
         # Enhanced error logging
         import traceback
@@ -129,4 +133,82 @@ async def chat(
             raise HTTPException(status_code=500, detail=error_detail)
         else:
             # In production, return a generic error message
-            raise HTTPException(status_code=500, detail="An unexpected error occurred")
+            raise HTTPException(status_code=500, detail="An error occurred while processing your request")
+
+
+# Session management endpoints
+@router.post("/chat/sessions", response_model=ChatSessionResponse)
+async def create_chat_session(
+    request: ChatSessionCreate,
+    current_user: User = Depends(get_current_user)
+):
+    """Create a new chat session"""
+    print(f"[DEBUG] create_chat_session endpoint called by user: {current_user.username}")
+    print(f"[DEBUG] Session name requested: {request.name}")
+    
+    try:
+        # Create a new session with the provided name (or default)
+        print(f"[DEBUG] Calling chat_service.create_session for {current_user.username}")
+        session = await chat_service.create_session(
+            username=current_user.username,
+            session_name=request.name
+        )
+        print(f"[DEBUG] Session created successfully: {session}")
+        return session
+    except Exception as e:
+        import traceback
+        error_detail = f"Error creating session: {str(e)}\nTraceback: {traceback.format_exc()}"
+        print(f"[DEBUG] {error_detail}")
+        raise HTTPException(status_code=500, detail="Failed to create chat session")
+
+
+@router.get("/chat/sessions", response_model=ChatSessionListResponse)
+async def list_chat_sessions(
+    current_user: User = Depends(get_current_user)
+):
+    """List all chat sessions for the current user"""
+    print(f"[DEBUG] list_chat_sessions endpoint called by user: {current_user.username}")
+    
+    try:
+        # Get all sessions for this user
+        print(f"[DEBUG] Calling chat_service.list_user_sessions for {current_user.username}")
+        sessions = await chat_service.list_user_sessions(current_user.username)
+        print(f"[DEBUG] Sessions retrieved successfully: {sessions}")
+        return {"sessions": sessions}
+    except Exception as e:
+        import traceback
+        error_detail = f"Error listing sessions: {str(e)}\nTraceback: {traceback.format_exc()}"
+        print(f"[DEBUG] {error_detail}")
+        raise HTTPException(status_code=500, detail="Failed to list chat sessions")
+
+
+@router.get("/chat/sessions/{session_id}/history")
+async def get_session_history(
+    session_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Get message history for a specific session"""
+    print(f"[DEBUG] get_session_history endpoint called for session: {session_id} by user: {current_user.username}")
+    
+    try:
+        # Verify session belongs to user (simple check based on naming convention)
+        print(f"[DEBUG] Verifying session {session_id} belongs to user {current_user.username}")
+        if not session_id.startswith(f"{current_user.username}_"):
+            print(f"[DEBUG] Session verification failed: {session_id} does not belong to {current_user.username}")
+            raise HTTPException(
+                status_code=403, 
+                detail="You do not have permission to access this session"
+            )
+            
+        # Get session history
+        print(f"[DEBUG] Calling chat_service.get_session_history for {session_id}")
+        messages = await chat_service.get_session_history(session_id)
+        print(f"[DEBUG] Retrieved {len(messages)} messages for session {session_id}")
+        return {"messages": messages}
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        error_detail = f"Error retrieving session history: {str(e)}\nTraceback: {traceback.format_exc()}"
+        print(f"[DEBUG] {error_detail}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve session history")
