@@ -16,8 +16,22 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import BaseMessage
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
-from langgraph.checkpoint.mongodb import MongoDBSaver
-from langgraph.checkpoint.mongodb.aio import AsyncMongoDBSaver
+# Handle different import paths based on langgraph version
+try:
+    # Try the original import path first (for local development)
+    from langgraph.checkpoint.mongodb import MongoDBSaver
+    from langgraph.checkpoint.mongodb.aio import AsyncMongoDBSaver
+except ImportError:
+    # Fall back to the new package structure (for CI environment)
+    try:
+        from langgraph_checkpoint_mongodb import MongoDBSaver
+        from langgraph_checkpoint_mongodb.aio import AsyncMongoDBSaver
+    except ImportError:
+        # If both fail, log a helpful error message
+        logging.error("Could not import MongoDB checkpoint functionality. "
+                     "Make sure either langgraph with MongoDB support or "
+                     "langgraph-checkpoint-mongodb is installed.")
+        raise
 from app.config import settings
 from app.database.mongodb import client as mongo_client, DATABASE_NAME
 from app.models.chat_session import ChatSessionMetadata

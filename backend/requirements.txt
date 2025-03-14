@@ -19,6 +19,8 @@ openai>=1.0.0
 langgraph==0.3.5
 # Required for MongoDB checkpoint functionality
 langgraph-checkpoint>=0.0.1
+# MongoDB checkpoint support
+langgraph-checkpoint-mongodb>=0.0.1
 # JWT for token handling
 PyJWT>=2.8.0
 # HTTP client for integration tests
