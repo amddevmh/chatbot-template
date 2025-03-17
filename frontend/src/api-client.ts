@@ -1,5 +1,6 @@
 import { useAuth } from './hooks/use-auth';
 import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
+import { ChatSession, SessionHistoryResponse, SessionsListResponse, ChatResponse } from './types';
 
 /**
  * API Client for making authenticated requests to the backend
@@ -13,9 +14,8 @@ class ApiClient {
   
   constructor() {
     // Configure the base URL for API requests
-    // In development, this points to the local backend
-    // In production, this would be configured based on environment
-    this.baseUrl = 'http://localhost:8000/api/v1';
+    // Use environment variable if available, otherwise fall back to default
+    this.baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
     
     // Create axios instance with default configuration
     this.axiosInstance = axios.create({
@@ -132,17 +132,54 @@ class ChatApiClient {
    * This should be called from components that use the chat API
    */
   setAuth(auth: ReturnType<typeof useAuth>) {
+    if (!auth) {
+      console.warn('Attempted to set null auth context');
+      return;
+    }
+    
+    if (!auth.accessToken) {
+      console.warn('Attempted to set auth context without access token');
+      return;
+    }
+    
     this.auth = auth;
+    console.log('Auth context set in ChatApiClient', !!auth.accessToken);
   }
   
   /**
    * Send a chat message to the backend
    */
   async sendMessage(message: string, sessionId?: string) {
-    return this.api.post<{ response: string }>('/chat', {
+    return this.api.post<ChatResponse>('/chat', {
       message,
       session_id: sessionId,
     }, this.auth?.accessToken || undefined);
+  }
+  
+  /**
+   * List all chat sessions for the current user
+   */
+  async listSessions() {
+    if (!this.auth?.accessToken) {
+      console.error('Attempted to list sessions without auth token');
+      throw new Error('Authentication required');
+    }
+    
+    console.log('Listing sessions with token', !!this.auth.accessToken);
+    return this.api.get<SessionsListResponse>('/chat/sessions', this.auth.accessToken);
+  }
+
+  /**
+   * Create a new chat session
+   */
+  async createSession(name: string = "New Chat") {
+    if (!this.auth?.accessToken) {
+      console.error('Attempted to create session without auth token');
+      throw new Error('Authentication required');
+    }
+    
+    console.log('Creating session with token', !!this.auth.accessToken);
+    return this.api.post<ChatSession>('/chat/sessions', { name }, this.auth.accessToken);
   }
   
   /**
@@ -150,6 +187,22 @@ class ChatApiClient {
    */
   async getUserProfile() {
     return this.api.get<any>('/me', this.auth?.accessToken || undefined);
+  }
+  
+  /**
+   * Get message history for a specific session
+   */
+  async getSessionHistory(sessionId: string) {
+    if (!this.auth?.accessToken) {
+      console.error('Attempted to get session history without auth token');
+      throw new Error('Authentication required');
+    }
+    
+    console.log('Getting session history with token', !!this.auth.accessToken);
+    return this.api.get<SessionHistoryResponse>(
+      `/chat/sessions/${sessionId}/history`, 
+      this.auth.accessToken
+    );
   }
   
   /**
