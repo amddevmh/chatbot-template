@@ -66,3 +66,6 @@ htmlcov/
 
 # Frontend specific
 src/output.css
+
+# Documentation
+prv_docs/

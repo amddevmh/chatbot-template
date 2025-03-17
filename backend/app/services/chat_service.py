@@ -16,6 +16,8 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import BaseMessage
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type, RetryError
+from functools import wraps
 # Handle different import paths based on environment
 try:
     # Try the original import path first (for local development)
@@ -52,6 +54,43 @@ logger = logging.getLogger(__name__)
 active_sessions = {}
 active_sessions_lock = threading.Lock()
 
+# Define a reusable retry decorator for database operations
+def with_database_retry(operation_name=None):
+    """
+    A decorator that applies retry logic to database operations.
+    
+    Args:
+        operation_name: Optional name for the operation for better logging
+        
+    Returns:
+        A decorator that can be applied to async functions
+    """
+    # Create the retry decorator with our standard configuration
+    retry_decorator = retry(
+        stop=stop_after_attempt(3),  # Stop after 3 attempts
+        wait=wait_exponential(multiplier=0.5, min=0.5, max=2),  # Exponential backoff
+        before_sleep=lambda retry_state: logger.warning(
+            f"Retrying {operation_name or 'database operation'} "
+            f"(attempt {retry_state.attempt_number}/3): {retry_state.outcome.exception()}"
+        )
+    )
+    
+    # Return a function that will apply this decorator to an async function
+    def decorator(func):
+        @wraps(func)  # Preserve function metadata
+        async def wrapper(*args, **kwargs):
+            try:
+                # Apply the retry decorator to the function
+                return await retry_decorator(func)(*args, **kwargs)
+            except RetryError as retry_err:
+                # All retries failed
+                original_exception = retry_err.last_attempt.exception()
+                logger.error(f"Failed {operation_name or func.__name__} after multiple retries: {str(original_exception)}")
+                # Re-raise the original exception
+                raise original_exception
+        return wrapper
+    return decorator
+
 # Define the state as per the docs
 class State(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
@@ -59,9 +98,11 @@ class State(TypedDict):
 class ChatService:
     """Service for stateful chat interactions with an LLM using LangGraph memory"""
     
+    """This phase sets up the foundation but doesn't fully initialize the MongoDB persistence, which requires an async context."""
     def __init__(self):
         logger.info(f"Initializing ChatService (Thread ID: {threading.get_ident()})")
         try:
+            # 1. API Key Validation TODO Edit validation to be LLM agnostic
             if not settings.OPENAI_API_KEY:
                 logger.error("OPENAI_API_KEY not found in settings")
                 raise ValueError("OPENAI_API_KEY is required for ChatService initialization")
@@ -99,6 +140,7 @@ class ChatService:
         self.request_metrics = {}
         self.request_metrics_lock = threading.Lock()
     
+    @with_database_retry(operation_name="initialize_async_memory")
     async def initialize_async_memory(self):
         """Initialize the AsyncMongoDBSaver in an async context"""
         if hasattr(self, "_memory_initialized") and self._memory_initialized:
@@ -131,21 +173,21 @@ class ChatService:
         
         async def chatbot(state: State):
             # Track timing for LLM invocation
-            thread_id = threading.get_ident()
+            python_thread_id = threading.get_ident()
             start_time = time.time()
-            logger.debug(f"[Thread {thread_id}] Starting LLM invocation with {len(state['messages'])} messages")
+            logger.debug(f"[Thread {python_thread_id}] Starting LLM invocation with {len(state['messages'])} messages")
             
             try:
                 # Invoke LLM with timeout handling
                 response = await self.llm.ainvoke(state["messages"])
                 elapsed = time.time() - start_time
-                logger.info(f"[Thread {thread_id}] LLM responded in {elapsed:.2f}s: {response.content[:100]}...")
+                logger.info(f"[Thread {python_thread_id}] LLM responded in {elapsed:.2f}s: {response.content[:100]}...")
                 return {"messages": [response]}
             except asyncio.TimeoutError:
-                logger.error(f"[Thread {thread_id}] LLM invocation timeout after {time.time() - start_time:.2f}s")
+                logger.error(f"[Thread {python_thread_id}] LLM invocation timeout after {time.time() - start_time:.2f}s")
                 raise
             except Exception as e:
-                logger.error(f"[Thread {thread_id}] LLM error: {str(e)}")
+                logger.error(f"[Thread {python_thread_id}] LLM error: {str(e)}")
                 logger.error(traceback.format_exc())
                 raise
         
@@ -176,6 +218,7 @@ class ChatService:
             logger.error(traceback.format_exc())
             raise
     
+    @with_database_retry(operation_name="generate_session_id")
     async def generate_session_id(self, username: str, custom_id: str = None) -> str:
         """Generate a session ID using username and optional custom ID
         
@@ -195,6 +238,7 @@ class ChatService:
             unique_id = str(uuid.uuid4())[:8]
             return f"{username}_{unique_id}"
     
+    @with_database_retry(operation_name="create_session")
     async def create_session(self, username: str, session_name: str = "New Chat") -> dict:
         """Create a new chat session and store metadata
         
@@ -217,27 +261,22 @@ class ChatService:
             message_count=0
         )
         
-        # Save to MongoDB - Use a try/except to handle potential event loop issues
-        try:
-            await session.insert()
-            logger.info(f"Created new session {session_id} for user {username}")
-        except RuntimeError as e:
-            if "attached to a different loop" in str(e):
-                # For testing environments, create a mock session response
-                logger.warning(f"Event loop issue detected, using mock session data: {str(e)}")
-                # We'll still return the session data even though it wasn't persisted
-            else:
-                # Re-raise if it's a different error
-                raise
+        # Insert the session document
+        await session.insert()
+        logger.info(f"Created new session {session_id} for user {username}")
+        persisted = True
         
+        # Return session data with persistence status
         return {
             "session_id": session.session_id,
             "name": session.name,
             "created_at": session.created_at,
             "updated_at": session.updated_at,
-            "message_count": session.message_count
+            "message_count": session.message_count,
+            "persisted": persisted
         }
     
+    @with_database_retry(operation_name="list_user_sessions")
     async def list_user_sessions(self, username: str) -> List[dict]:
         """List all sessions for a user
         
@@ -264,6 +303,7 @@ class ChatService:
             for session in sessions
         ]
     
+    @with_database_retry(operation_name="get_session_history")
     async def get_session_history(self, session_id: str) -> List[dict]:
         """Get message history for a session
         
@@ -292,11 +332,18 @@ class ChatService:
             # since the checkpoint structure might not expose messages properly
             try:
                 # Get the most recent chat history from the database directly
-                collection = self.memory.client[self.memory.db_name][self.memory.collection_name]
+                # LangGraph doesn't expose collection_name as an attribute
+                # Let's check what collections actually exist in the database
+                db = self.memory.client[self.memory.db_name]
+                collections = await db.list_collection_names()
+                logger.debug(f"Available collections in database: {collections}")
                 
-                # Query for the latest checkpoint with this thread_id
+                # Based on LangGraph implementation, we know it uses specific collection names
+                collection = db['checkpoints_aio']
+                
+                # Query for the latest checkpoint with this session_id (LangGraph thread_id)
                 result = await collection.find_one(
-                    {"thread_id": session_id},
+                    {"thread_id": session_id},  # LangGraph uses thread_id as the persistence key
                     sort=[("timestamp", -1)]  # Get the most recent one
                 )
                 
@@ -349,6 +396,7 @@ class ChatService:
             logger.error(traceback.format_exc())
             return []
     
+    @with_database_retry(operation_name="update_session_metadata")
     async def update_session_metadata(self, session_id: str, increment_messages: int = 1):
         """Update session metadata when a new message is sent
         
@@ -373,7 +421,7 @@ class ChatService:
     async def get_chat_response(self, message: str, session_id: str) -> str:
         """Get a response from the LLM with session context"""
         request_id = f"{session_id}_{int(time.time()*1000)}"
-        thread_id = threading.get_ident()
+        python_thread_id = threading.get_ident()
         start_time = time.time()
         
         # Ensure AsyncMongoDBSaver is initialized in async context
@@ -386,7 +434,7 @@ class ChatService:
             prev_count = len(active_sessions)
             active_sessions[request_id] = {
                 'session_id': session_id,
-                'thread_id': thread_id,
+                'python_thread_id': python_thread_id,
                 'start_time': start_time,
                 'message': message[:50] + '...' if len(message) > 50 else message
             }
@@ -406,8 +454,8 @@ class ChatService:
                 
             logger.info(f"[{request_id}] Processing message of length {len(message)} for session {session_id}")
                 
-            # Configure thread_id for persistent memory
-            config = {"configurable": {"thread_id": session_id}}
+            # Configure session_id for LangGraph persistent memory
+            config = {"configurable": {"thread_id": session_id}}  # LangGraph uses thread_id for persistence
             
             # Log performance for each stage
             memory_fetch_start = time.time()
