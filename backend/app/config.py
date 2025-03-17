@@ -23,7 +23,11 @@ class Settings(BaseModel):
     API_PREFIX: str = "/api/v1"
     
     # CORS settings
-    CORS_ORIGINS: List[str] = ["*"]  # Replace with specific origins in production
+    # When using credentials, specific origins must be listed (can't use wildcard "*")
+    CORS_ORIGINS: List[str] = [
+        "http://localhost:3000",  # Local development
+        "https://superb-gratitude-production.up.railway.app"  # Production frontend
+    ]
     
     # Environment
     ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
