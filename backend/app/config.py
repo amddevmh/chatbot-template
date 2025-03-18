@@ -26,7 +26,8 @@ class Settings(BaseModel):
     # When using credentials, specific origins must be listed (can't use wildcard "*")
     CORS_ORIGINS: List[str] = [
         "http://localhost:3000",  # Local development
-        "https://chatbot-template.up.railway.app"  # Production frontend
+        "https://chatbot-template.up.railway.app",  # Production frontend
+        "https://chattemplate.app"  # Production frontend
     ]
     
     # Environment
