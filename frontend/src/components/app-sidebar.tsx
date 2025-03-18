@@ -107,17 +107,10 @@ export function AppSidebar({
             <SidebarMenuButton 
               onClick={async () => {
                 try {
-                  // Create new session but don't use the return value directly
-                  await createNewSession("New Chat");
-                  // Wait for the sessions to be refetched
-                  await new Promise(resolve => setTimeout(resolve, 500));
-                  // Get the latest sessions
-                  const latestSessions = sessions;
-                  if (latestSessions && latestSessions.length > 0) {
-                    // Navigate to the most recently created session
-                    const newestSession = latestSessions[0];
-                    navigate(`/chat/${newestSession.session_id}`);
-                  }
+                  // Create new session and get the returned session directly
+                  const newSession = await createNewSession("New Chat");
+                  // Navigate directly to the newly created session
+                  navigate(`/chat/${newSession.session_id}`);
                 } catch (error) {
                   console.error("Error creating new session:", error);
                 }

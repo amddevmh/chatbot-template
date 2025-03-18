@@ -211,6 +211,21 @@ class ChatApiClient {
   async checkHealth() {
     return this.api.get<{ status: string; message: string }>('/health');
   }
+  
+  /**
+   * Generate a title for a chat session based on its content
+   * @returns The updated session with the new title
+   */
+  async generateSessionTitle(sessionId: string): Promise<ChatSession> {
+    if (!this.auth?.accessToken) {
+      console.error('Attempted to generate session title without auth token');
+      throw new Error('Authentication required');
+    }
+    
+    console.log('Generating title for session', sessionId);
+    const response = await this.api.post<ChatSession>(`/chat/sessions/${sessionId}/title`, {}, this.auth.accessToken);
+    return response;
+  }
 }
 
 // Export a singleton instance of the chat API client

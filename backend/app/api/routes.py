@@ -162,6 +162,35 @@ async def create_chat_session(
         raise HTTPException(status_code=500, detail="Failed to create chat session")
 
 
+@router.post("/chat/sessions/{session_id}/title", response_model=ChatSessionResponse)
+async def generate_session_title(
+    session_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Generate a title for a chat session based on its content"""
+    print(f"[DEBUG] generate_session_title endpoint called for session: {session_id} by user: {current_user.username}")
+    
+    try:
+        # Generate a title based on the conversation content
+        title = await chat_service.generate_session_title(session_id)
+        print(f"[DEBUG] Generated title: {title}")
+        
+        # Update the session with the new title
+        updated_session = await chat_service.update_session(
+            username=current_user.username,
+            session_id=session_id,
+            name=title
+        )
+        print(f"[DEBUG] Session updated successfully: {updated_session}")
+        
+        return updated_session
+    except Exception as e:
+        import traceback
+        error_detail = f"Error generating title: {str(e)}\nTraceback: {traceback.format_exc()}"
+        print(f"[DEBUG] {error_detail}")
+        raise HTTPException(status_code=500, detail="Failed to generate session title")
+
+
 @router.get("/chat/sessions", response_model=ChatSessionListResponse)
 async def list_chat_sessions(
     current_user: User = Depends(get_current_user)

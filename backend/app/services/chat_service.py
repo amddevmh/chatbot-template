@@ -418,6 +418,110 @@ class ChatService:
             logger.error(f"Error updating session metadata for {session_id}: {str(e)}")
             logger.error(traceback.format_exc())
     
+    @with_database_retry(operation_name="update_session")
+    async def update_session(self, username: str, session_id: str, name: str = None) -> dict:
+        """Update a chat session's metadata
+        
+        Args:
+            username: The username of the user
+            session_id: The ID of the session
+            name: New name for the session
+            
+        Returns:
+            Updated session metadata dictionary
+        """
+        try:
+            # Find the session
+            session = await ChatSessionMetadata.find_one(ChatSessionMetadata.session_id == session_id)
+            if not session:
+                logger.warning(f"Session {session_id} not found for update")
+                raise ValueError(f"Session {session_id} not found")
+                
+            # Verify ownership
+            if session.username != username:
+                logger.warning(f"User {username} attempted to update session {session_id} owned by {session.username}")
+                raise ValueError(f"Session {session_id} does not belong to user {username}")
+            
+            # Update fields
+            if name is not None:
+                session.name = name
+                
+            session.updated_at = datetime.now()
+            await session.save()
+            
+            logger.info(f"Updated session {session_id} for user {username}")
+            
+            # Return updated session data
+            return {
+                "session_id": session.session_id,
+                "name": session.name,
+                "created_at": session.created_at,
+                "updated_at": session.updated_at,
+                "message_count": session.message_count
+            }
+        except Exception as e:
+            logger.error(f"Error updating session {session_id}: {str(e)}")
+            logger.error(traceback.format_exc())
+            raise
+    
+    @with_database_retry(operation_name="generate_session_title")
+    async def generate_session_title(self, session_id: str) -> str:
+        """Generate a title for a chat session based on its content
+        
+        Args:
+            session_id: The ID of the session
+            
+        Returns:
+            A generated title string
+        """
+        try:
+            # Get the session messages
+            messages = await self.get_session_history(session_id)
+            
+            # Need at least two messages to generate a meaningful title
+            if len(messages) < 2:
+                logger.info(f"Not enough messages in session {session_id} to generate title")
+                return "New Chat"
+            
+            # Extract the first few messages for context (limit to avoid token issues)
+            context_messages = messages[:min(3, len(messages))]
+            message_texts = [f"{msg['role']}: {msg['content']}" for msg in context_messages]
+            context = "\n".join(message_texts)
+            
+            # Create a system prompt for title generation
+            system_prompt = "Based on this conversation, generate an ultra short, descriptive title, max 3 words. Respond with ONLY the title, no quotes or explanations."
+            
+            # Use the LLM to generate a title
+            title_messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": context}
+            ]
+            
+            # Use the same LLM instance but with different parameters for title generation
+            response = await self.llm.ainvoke(
+                title_messages,
+                temperature=0.7,
+                max_tokens=10  # Keep titles short
+            )
+            
+            # Extract and clean the title
+            title = response.content.strip()
+            # Remove quotes if present
+            title = title.strip('"').strip("'").strip()
+            
+            # If empty or too long, use a fallback
+            if not title or len(title) > 50:
+                logger.warning(f"Generated invalid title for session {session_id}: {title}")
+                return "Chat Session"
+                
+            logger.info(f"Generated title for session {session_id}: {title}")
+            return title
+            
+        except Exception as e:
+            logger.error(f"Error generating title for session {session_id}: {str(e)}")
+            logger.error(traceback.format_exc())
+            return "Chat Session"  # Fallback title
+    
     async def get_chat_response(self, message: str, session_id: str) -> str:
         """Get a response from the LLM with session context"""
         request_id = f"{session_id}_{int(time.time()*1000)}"

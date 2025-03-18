@@ -58,8 +58,17 @@ export function useChatSessions() {
   })
   
   // Function to create a new chat session
-  const createNewSession = (name: string = "New Chat") => {
-    createSessionMutation.mutate(name)
+  const createNewSession = async (name: string = "New Chat"): Promise<ChatSession> => {
+    return new Promise((resolve, reject) => {
+      createSessionMutation.mutate(name, {
+        onSuccess: (data) => {
+          resolve(data)
+        },
+        onError: (error) => {
+          reject(error)
+        }
+      })
+    })
   }
   
   return {
