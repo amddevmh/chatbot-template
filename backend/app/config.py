@@ -23,7 +23,7 @@ class Settings(BaseModel):
     API_PREFIX: str = "/api/v1"
     
     # CORS settings
-    # When using credentials, specific origins must be listed (can't use wildcard "*")
+    # When using credentials, specific origins must be listed (cant use wildcard "*")
     CORS_ORIGINS: List[str] = [
         origin.strip() for origin in os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
         if origin.strip()
