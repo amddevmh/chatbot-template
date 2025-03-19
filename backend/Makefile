@@ -41,6 +41,11 @@ test-integration:
 	@echo "Running integration tests..."
 	$(PYTHON) -m pytest $(TEST_DIR)/test_hello_integration.py
 
+# Run MongoDB session tests
+.PHONY: test-mongodb-session
+test-mongodb-session:
+	@echo "Running MongoDB session tests..."
+	$(PYTHON) -m pytest $(TEST_DIR)/test_mongodb_session.py $(TEST_DIR)/test_chat_service.py $(TEST_DIR)/test_session_api_integration.py
 
 # Run the application
 .PHONY: run
