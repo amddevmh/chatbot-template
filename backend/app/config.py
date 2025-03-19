@@ -25,9 +25,8 @@ class Settings(BaseModel):
     # CORS settings
     # When using credentials, specific origins must be listed (can't use wildcard "*")
     CORS_ORIGINS: List[str] = [
-        "http://localhost:3000",  # Local development
-        "https://chatbot-template.up.railway.app",  # Production frontend
-        "https://chattemplate.app"  # Production frontend
+        origin.strip() for origin in os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
+        if origin.strip()
     ]
     
     # Environment
