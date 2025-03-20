@@ -120,20 +120,19 @@ export function AppSidebar({
       <SidebarFooter className="border-t border-sidebar-border bg-sidebar-background/90 backdrop-blur-sm sticky bottom-0 pb-1 pt-2">
         <SidebarMenu>
           <SidebarMenuItem>
-            <Button
-            onClick={async () => {
-              try {
-                // Create new session and get the returned session directly
-                const newSession = await createNewSession("New Chat");
-                // Navigate directly to the newly created session
-                navigate(`/chat/${newSession.session_id}`);
-              } catch (error) {
-                console.error("Error creating new session:", error);
-              }
-            }} 
-            disabled={isCreating}
+            <SidebarMenuButton
+              variant="outline"
+              onClick={async () => {
+                try {
+                  // Create new session and get the returned session directly
+                  const newSession = await createNewSession("New Chat");
+                  navigate(`/chat/${newSession.session_id}`);
+                } catch (error) {
+                  console.error("Error creating new session:", error);
+                }
+              }}
+              disabled={isCreating}
             >
-              
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 width="24"
@@ -150,7 +149,7 @@ export function AppSidebar({
                 <line x1="5" y1="12" x2="19" y2="12" />
               </svg>
               Start a new chat
-            </Button>
+            </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>

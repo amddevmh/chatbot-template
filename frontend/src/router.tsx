@@ -53,7 +53,7 @@ function ErrorPage() {
   }
   
   return (
-    <div className="flex h-screen w-screen items-center justify-center p-8 text-center">
+    <div className="bg-background flex h-screen w-screen items-center justify-center p-8 text-center">
       <div className="max-w-md space-y-4">
         <h3 className="text-xl font-semibold">{errorTitle}</h3>
         <p className="text-muted-foreground">{errorMessage}</p>

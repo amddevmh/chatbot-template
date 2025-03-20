@@ -2,7 +2,6 @@ import React, { createContext, useState, useEffect, useContext } from 'react';
 import { supabase } from '../lib/supabase-client';
 import type { User, Session } from '@supabase/supabase-js';
 
-// Define the shape of our authentication context
 interface AuthContextType {
   user: User | null;
   session: Session | null;
@@ -43,21 +42,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.log('Auth initialization timeout reached, forcing isLoading to false');
         setIsLoading(false);
       }
-    }, 3000); // Reduced to 3 seconds timeout
+    }, 3000);
     
     return () => clearTimeout(timeoutId);
   }, [isLoading]);
 
   // Initialize authentication state on component mount
   useEffect(() => {
-    console.log('initAuth effect triggered');
     let isMounted = true; // Flag to prevent state updates after unmount
 
     const initAuth = async () => {
-      console.log('initAuth function execution started');
       try {
         // Get the current session
-        console.log('Getting current session from Supabase');
         const { data: { session }, error: sessionError } = await supabase.auth.getSession();
         
         if (sessionError) {
@@ -76,54 +72,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setIsLoading(false);
           }
         } else {
-          console.log('No session found, checking for dev credentials');
-          const USE_DEV_USER = true;
-          // Auto-login in development mode if credentials are provided
-          if (import.meta.env.DEV && USE_DEV_USER) {
-            const devEmail = import.meta.env.VITE_SUPABASE_DEV_EMAIL;
-            const devPassword = import.meta.env.VITE_SUPABASE_DEV_PASSWORD;
-            
-            console.log('Dev credentials available:', { 
-              hasEmail: !!devEmail, 
-              hasPassword: !!devPassword,
-              email: devEmail
-            });
-            
-            if (devEmail && devPassword) {
-              console.log('Development mode: Auto-login with dev credentials');
-              try {
-                console.log('Attempting to sign in with dev credentials');
-                const { data, error } = await supabase.auth.signInWithPassword({
-                  email: devEmail,
-                  password: devPassword,
-                });
-                
-                if (error) {
-                  console.error('Dev auto-login failed:', error.message);
-                } else if (data.session) {
-                  console.log('Dev auto-login successful');
-                  console.log('Session token available:', !!data.session.access_token);
-                  if (isMounted) {
-                    setSession(data.session);
-                    setUser(data.user);
-                  }
-                } else {
-                  console.log('No error but no session returned');
-                }
-              } catch (e) {
-                console.error('Error during dev auto-login:', e);
-              }
-            } else {
-              console.log('Dev credentials not available, skipping auto-login');
-            }
-          }
-          
-          // Always set loading to false after attempting auto-login
           if (isMounted) setIsLoading(false);
         }
       } catch (error) {
         console.error('Error initializing auth:', error);
-        // Make sure to set loading to false if there's an error
         if (isMounted) setIsLoading(false);
       }
     };
@@ -261,14 +213,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
  * Custom hook for accessing authentication context
  */
 export function useAuth() {
-  console.log('useAuth hook called');
   const authContext = useContext(AuthContext);
-  console.log('Auth context in useAuth hook:', {
-    isAuthenticated: authContext.isAuthenticated,
-    isLoading: authContext.isLoading,
-    hasUser: !!authContext.user,
-    hasSession: !!authContext.session,
-    hasToken: !!authContext.accessToken
-  });
   return authContext;
 }
