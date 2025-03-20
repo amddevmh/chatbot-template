@@ -13,13 +13,12 @@ import sys
 from app.config import settings
 from app.api.routes import router as api_router
 from app.auth.routes import router as auth_router
-from app.auth.middleware import verify_user_middleware
 from app.database.mongodb import init_db, close_db_connection
 from app.models.user import User
 from app.models.chat_session import ChatSessionMetadata
 
-# Set up logging
-logging.basicConfig(level=logging.DEBUG, 
+# Set up logging - this is the ONLY place where basicConfig should be called
+logging.basicConfig(level=logging.INFO, 
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                     handlers=[logging.StreamHandler(sys.stdout)])
 logger = logging.getLogger("app.application")
@@ -114,23 +113,6 @@ def create_application() -> FastAPI:
         allow_headers=["*"],
     )
     
-    # Add authentication middleware with error handling
-    @app.middleware("http")
-    async def auth_middleware(request: Request, call_next):
-        try:
-            # Skip auth middleware for health check endpoint
-            if request.url.path == "/health":
-                logger.debug(f"Skipping auth for health check endpoint")
-                return await call_next(request)
-                
-            logger.debug(f"Verifying auth for request to: {request.url.path}")
-            await verify_user_middleware(request)
-            return await call_next(request)
-        except Exception as e:
-            logger.error(f"Auth middleware error: {str(e)}")
-            # Continue with the request even if auth fails
-            # The endpoints that require auth will still check the request.state.user
-            return await call_next(request)
     
     # Include routers
     app.include_router(

@@ -38,15 +38,10 @@ from app.config import settings
 from app.database.mongodb import client as mongo_client, DATABASE_NAME
 from app.models.chat_session import ChatSessionMetadata
 
-# Configure logging with more detailed format
-logging.basicConfig(
-    level=settings.LOG_LEVEL or logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-
 # Set higher logging level for noisy libraries
 logging.getLogger('pymongo').setLevel(logging.WARNING)
 logging.getLogger('passlib').setLevel(logging.WARNING)
+logging.getLogger('jwt').setLevel(logging.WARNING)  # Also reduce JWT logging noise
 
 logger = logging.getLogger(__name__)
 

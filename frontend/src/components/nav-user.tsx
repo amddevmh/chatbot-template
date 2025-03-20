@@ -7,15 +7,16 @@ import {
   Sparkles,
   User,
   LogIn,
-} from "lucide-react"
+  Github,
+  Mail,
+  Facebook,
+  Chrome,
+} from "lucide-react";
 
-import { ThemeModeDisplay } from "@/components/theme-mode-display"
-import { useAuth } from "@/hooks/use-auth"
+import { ThemeModeDisplay } from "@/components/theme-mode-display";
+import { useAuth } from "@/hooks/use-auth";
 
-import {
-  Avatar,
-  AvatarFallback,
-} from "@/components/ui/avatar"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -24,17 +25,42 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+} from "@/components/ui/dropdown-menu";
 import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
   useSidebar,
-} from "@/components/ui/sidebar"
+} from "@/components/ui/sidebar";
 
 export function NavUser() {
-  const { isMobile } = useSidebar()
-  const { user, isAuthenticated, isLoading, signIn, signOut } = useAuth()
+  const { isMobile } = useSidebar();
+  const { user, isLoading, signOut } = useAuth();
+
+  // Get user display name
+  const getUserName = () => {
+    if (!user) return "User";
+
+    // Try to get name from user metadata
+    const metadata = user.user_metadata || {};
+    if (metadata.full_name) return metadata.full_name;
+    if (metadata.name) return metadata.name;
+    if (metadata.first_name && metadata.last_name)
+      return `${metadata.first_name} ${metadata.last_name}`;
+    if (metadata.first_name) return metadata.first_name;
+
+    // Fall back to email
+    return user.email?.split("@")[0] || "User";
+  };
+
+  // Get user avatar
+  const getUserAvatar = () => {
+    if (!user) return null;
+
+    // Try to get avatar from user metadata
+    const metadata = user.user_metadata || {};
+    return metadata.avatar_url || metadata.picture || null;
+  };
 
   // If loading, show a loading state
   if (isLoading) {
@@ -51,30 +77,7 @@ export function NavUser() {
           </SidebarMenuButton>
         </SidebarMenuItem>
       </SidebarMenu>
-    )
-  }
-
-  // If not authenticated, show a sign-in button
-  if (!isAuthenticated || !user) {
-    return (
-      <SidebarMenu>
-        <SidebarMenuItem>
-          <SidebarMenuButton 
-            size="lg" 
-            onClick={() => signIn()}
-            className="hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-          >
-            <Avatar className="h-8 w-8 rounded-lg">
-              <AvatarFallback className="rounded-lg"><User className="h-4 w-4" /></AvatarFallback>
-            </Avatar>
-            <div className="grid flex-1 text-left text-sm leading-tight">
-              <span className="truncate font-semibold">Sign In</span>
-            </div>
-            <LogIn className="ml-auto size-4" />
-          </SidebarMenuButton>
-        </SidebarMenuItem>
-      </SidebarMenu>
-    )
+    );
   }
 
   // If authenticated, show the user dropdown
@@ -88,11 +91,16 @@ export function NavUser() {
               className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
             >
               <Avatar className="h-8 w-8 rounded-lg">
-                <AvatarFallback className="rounded-lg">{user.name?.charAt(0) || 'U'}</AvatarFallback>
+                {getUserAvatar() && (
+                  <AvatarImage src={getUserAvatar()} alt={getUserName()} />
+                )}
+                <AvatarFallback className="rounded-lg">
+                  {getUserName().charAt(0)}
+                </AvatarFallback>
               </Avatar>
               <div className="grid flex-1 text-left text-sm leading-tight">
-                <span className="truncate font-semibold">{user.name || 'User'}</span>
-                <span className="truncate text-xs">{user.email || ''}</span>
+                <span className="truncate font-semibold">{getUserName()}</span>
+                <span className="truncate text-xs">{user?.email}</span>
               </div>
               <ChevronsUpDown className="ml-auto size-4" />
             </SidebarMenuButton>
@@ -106,11 +114,18 @@ export function NavUser() {
             <DropdownMenuLabel className="p-0 font-normal">
               <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
                 <Avatar className="h-8 w-8 rounded-lg">
-                  <AvatarFallback className="rounded-lg">{user.name?.charAt(0) || 'U'}</AvatarFallback>
+                  {getUserAvatar() && (
+                    <AvatarImage src={getUserAvatar()} alt={getUserName()} />
+                  )}
+                  <AvatarFallback className="rounded-lg">
+                    {getUserName().charAt(0)}
+                  </AvatarFallback>
                 </Avatar>
                 <div className="grid flex-1 text-left text-sm leading-tight">
-                  <span className="truncate font-semibold">{user.name || 'User'}</span>
-                  <span className="truncate text-xs">{user.email || ''}</span>
+                  <span className="truncate font-semibold">
+                    {getUserName()}
+                  </span>
+                  <span className="truncate text-xs">{user?.email}</span>
                 </div>
               </div>
             </DropdownMenuLabel>
@@ -148,5 +163,5 @@ export function NavUser() {
         </DropdownMenu>
       </SidebarMenuItem>
     </SidebarMenu>
-  )
+  );
 }

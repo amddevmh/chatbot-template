@@ -2,22 +2,25 @@
 """
 Authentication middleware
 """
-from typing import Optional
+from typing import Optional, Any
+import logging
 from fastapi import Request, HTTPException, status, Depends
-from jose import JWTError, jwt
 from app.config import settings
-from app.models.user import User
-from app.auth.security import verify_token
+from app.auth.supabase_client import supabase
+from app.auth.models import AuthUser
+
+# Get logger for this module
+logger = logging.getLogger(__name__)
 
 
 async def verify_user_middleware(request: Request) -> None:
     """
-    Middleware to verify user authentication
+    Middleware to verify user authentication using Supabase
     
     This middleware:
     1. Extracts the JWT token from the Authorization header
-    2. Verifies the token
-    3. Retrieves the user from the database
+    2. Verifies the token with Supabase
+    3. Creates an AuthUser object with the user information
     4. Attaches the user to the request state
     
     If any step fails, an appropriate HTTP exception is raised
@@ -39,6 +42,7 @@ async def verify_user_middleware(request: Request) -> None:
     
     if not authorization:
         # No token provided, require authentication
+        logger.warning(f"401 Unauthorized: No token provided for path {request.url.path}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated",
@@ -46,94 +50,59 @@ async def verify_user_middleware(request: Request) -> None:
         )
             
     try:
-        scheme, token = authorization.split()
+        # Extract token
+        if authorization.startswith("Bearer "):
+            token = authorization[7:]
+            logger.debug(f"Bearer token extracted for path {request.url.path}: {token[:10]}...")
+        else:
+            token = authorization
+            logger.debug(f"Raw token used for path {request.url.path}: {token[:10]}...")
         
-        # Check if this is a dev token
+        # Verify token with Supabase
         try:
-            # Just decode without verification to check if it's our dev token
-            payload = jwt.decode(
-                token, 
-                settings.JWT_SECRET_KEY, 
-                algorithms=[settings.JWT_ALGORITHM],
-                options={"verify_exp": False}  # Don't verify expiration for this check
-            )
-            if payload.get("sub") == "dev_test_user":
-                print("\n=== DEV USER DETECTED IN MIDDLEWARE ===\n")
-                print(f"Request path: {request.url.path}")
-                print(f"Method: {request.method}")
-                print("=== Using dev_test_user for authentication ===\n")
-        except Exception:
-            # Ignore any errors in dev detection
-            pass
-        if scheme.lower() != "bearer":
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid authentication scheme",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
+            response = supabase.auth.get_user(token)
+            supabase_user = response.user
             
-        # Verify token with enhanced debugging
-        try:
-            print(f"\n=== VERIFYING TOKEN IN MIDDLEWARE ===\n")
-            print(f"Token: {token[:10]}...")
-            print(f"JWT_SECRET_KEY: {settings.JWT_SECRET_KEY[:5]}...")
-            print(f"JWT_ALGORITHM: {settings.JWT_ALGORITHM}")
-            
-            # Debug decode without verification
-            debug_payload = jwt.decode(
-                token, 
-                options={"verify_signature": False}
-            )
-            print(f"Token payload (without verification): {debug_payload}")
-            
-            # Actual verification
-            token_data = verify_token(token)
-            print(f"Token verification result: {token_data}")
-            
-            if token_data is None:
-                print("Token verification failed!")
+            if not supabase_user:
+                logger.warning(f"401 Unauthorized: Supabase returned no user for token on path {request.url.path}")
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Invalid token or expired token",
+                    detail="Invalid token",
                     headers={"WWW-Authenticate": "Bearer"},
                 )
+            
+            logger.info(f"User verified: {supabase_user.email}")
+            
+            # Create AuthUser object
+            auth_user = AuthUser(
+                id=supabase_user.id,
+                email=supabase_user.email,
+                user_metadata=supabase_user.user_metadata or {},
+                app_metadata=supabase_user.app_metadata or {}
+            )
+            
+            # Attach user to request state
+            request.state.user = auth_user
+            
         except Exception as e:
-            print(f"Token verification exception: {str(e)}")
+            logger.error(f"Token verification exception for path {request.url.path}: {str(e)}")
+            logger.debug(f"Token that failed verification (first 10 chars): {token[:10]}...")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=f"Token verification error: {str(e)}",
+                detail=f"Invalid token: {str(e)}",
                 headers={"WWW-Authenticate": "Bearer"},
             )
             
-        # Get user from database
-        user = await User.find_one({"username": token_data.sub})
-        
-        if user is None:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="User not found",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-            
-        # Check if user is active
-        if not user.is_active:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Inactive user",
-            )
-            
-        # Attach user to request state
-        request.state.user = user
-        
-    except (ValueError, JWTError):
+    except Exception as e:
+        logger.error(f"General authentication error for path {request.url.path}: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token",
+            detail=f"Authentication error: {str(e)}",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
 
-def get_user_from_request(request: Request) -> Optional[User]:
+def get_user_from_request(request: Request) -> Optional[AuthUser]:
     """
     Get the user from the request state
     
@@ -143,25 +112,25 @@ def get_user_from_request(request: Request) -> Optional[User]:
         request: The FastAPI request object
         
     Returns:
-        The user object if authenticated, None otherwise
+        The AuthUser object if authenticated, None otherwise
     """
     return getattr(request.state, "user", None)
 
 
-def require_active_user(user: Optional[User] = Depends(get_user_from_request)) -> User:
+def require_auth(user: Optional[AuthUser] = Depends(get_user_from_request)) -> AuthUser:
     """
-    Require an active user for a route
+    Require an authenticated user for a route
     
     This function can be used as a dependency in route handlers
     
     Args:
-        user: The user object from the request state
+        user: The AuthUser object from the request state
         
     Returns:
-        The user object if active
+        The AuthUser object if authenticated
         
     Raises:
-        HTTPException: If user is not authenticated or not active
+        HTTPException: If user is not authenticated
     """
     if user is None:
         raise HTTPException(
@@ -170,34 +139,27 @@ def require_active_user(user: Optional[User] = Depends(get_user_from_request)) -
             headers={"WWW-Authenticate": "Bearer"},
         )
         
-    if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Inactive user",
-        )
-        
     return user
 
 
-def require_verified_user(user: User = Depends(require_active_user)) -> User:
+def require_role(role: str):
     """
-    Require a verified user for a route
+    Require a specific role for a route
     
-    This function can be used as a dependency in route handlers
+    This function returns a dependency that can be used in route handlers
     
     Args:
-        user: The user object from the request state
+        role: The required role
         
     Returns:
-        The user object if verified
-        
-    Raises:
-        HTTPException: If user is not verified
+        A dependency function that checks if the user has the required role
     """
-    if not user.is_verified:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Email not verified",
-        )
-        
-    return user
+    def _require_role(user: AuthUser = Depends(require_auth)) -> AuthUser:
+        if not user.has_role(role):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Role '{role}' required",
+            )
+        return user
+    
+    return _require_role

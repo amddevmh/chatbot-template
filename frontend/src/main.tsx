@@ -1,11 +1,12 @@
-import { StrictMode } from 'react'
-import { createRoot } from 'react-dom/client'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { RouterProvider } from 'react-router-dom'
-import './index.css'
-import { router } from './router'
+import { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { RouterProvider } from "react-router-dom";
+import "./index.css";
+import { router } from "./router";
+import { AuthProvider } from "./components/auth-provider";
+import { ThemeProvider } from "./components/theme-provider";
 
-// Create a client with improved configuration
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -19,22 +20,22 @@ const queryClient = new QueryClient({
       retryDelay: 1000, // 1 second delay before retry
     },
   },
-})
+});
 
 // Initialize the application
 async function initApp() {
-  // This is where we would initialize Auth.js in a Next.js application
-  // For our Vite app, the initialization happens in the AuthProvider component
-  
   // Render the application
-  createRoot(document.getElementById('root')!).render(
+  createRoot(document.getElementById("root")!).render(
     <StrictMode>
-      <QueryClientProvider client={queryClient}>
-        <RouterProvider router={router} />
-      </QueryClientProvider>
-    </StrictMode>,
-  )
+      <ThemeProvider defaultTheme="dark" storageKey="vite-ui-theme">
+        <QueryClientProvider client={queryClient}>
+          <AuthProvider>
+            <RouterProvider router={router} />
+          </AuthProvider>
+        </QueryClientProvider>
+      </ThemeProvider>
+    </StrictMode>
+  );
 }
 
-// Start the application
-initApp().catch(console.error)
+initApp().catch(console.error);
