@@ -1,9 +1,18 @@
-import { StrictMode } from 'react'
+import React, { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from 'react-router-dom'
 import './index.css'
 import { router } from './router'
+import { AuthProvider } from './components/auth-provider'
+
+console.log('Environment variables check:', {
+  apiUrl: import.meta.env.VITE_API_URL,
+  supabaseUrl: import.meta.env.VITE_SUPABASE_URL,
+  supabaseKeyExists: !!import.meta.env.VITE_SUPABASE_KEY,
+  devEmailExists: !!import.meta.env.VITE_SUPABASE_DEV_EMAIL,
+  devPasswordExists: !!import.meta.env.VITE_SUPABASE_DEV_PASSWORD
+});
 
 // Create a client with improved configuration
 const queryClient = new QueryClient({
@@ -23,14 +32,32 @@ const queryClient = new QueryClient({
 
 // Initialize the application
 async function initApp() {
-  // This is where we would initialize Auth.js in a Next.js application
-  // For our Vite app, the initialization happens in the AuthProvider component
+  console.log('initApp function called');
+  
+  // Create a wrapper component to log when the router is mounted
+  const RouterWrapper = () => {
+    console.log('RouterWrapper component rendering');
+    
+    React.useEffect(() => {
+      console.log('RouterWrapper component mounted');
+      return () => {
+        console.log('RouterWrapper component unmounted');
+      };
+    }, []);
+    
+    // Wrap RouterProvider with AuthProvider to provide authentication context
+    return (
+      <AuthProvider>
+        <RouterProvider router={router} />
+      </AuthProvider>
+    );
+  };
   
   // Render the application
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
       <QueryClientProvider client={queryClient}>
-        <RouterProvider router={router} />
+        <RouterWrapper />
       </QueryClientProvider>
     </StrictMode>,
   )

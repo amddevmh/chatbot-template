@@ -1,89 +1,199 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
-import { getDevToken } from '../auth';
-import { jwtDecode } from 'jwt-decode';
+import { supabase } from '../lib/supabase-client';
+import type { User, Session } from '@supabase/supabase-js';
 
 // Define the shape of our authentication context
 interface AuthContextType {
-  user: any | null;
+  user: User | null;
+  session: Session | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   accessToken: string | null;
-  signIn: () => Promise<void>;
+  signIn: (provider?: 'github' | 'google' | 'facebook') => Promise<void>;
+  signInWithPassword: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
 }
 
 // Create the authentication context
 const AuthContext = createContext<AuthContextType>({
   user: null,
+  session: null,
   isAuthenticated: false,
   isLoading: true,
   accessToken: null,
   signIn: async () => {},
+  signInWithPassword: async () => {},
   signOut: async () => {},
 });
 
 /**
  * AuthProvider component provides authentication context throughout the application.
  * 
- * This is a simplified version of next-auth's SessionProvider that works with Vite.
- * It simulates the authentication flow using a hardcoded development token.
+ * This uses Supabase Auth for authentication, including social providers.
  */
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<any | null>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [accessToken, setAccessToken] = useState<string | null>(null);
   
+  // Add a timeout to ensure isLoading is set to false after a certain amount of time
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      if (isLoading) {
+        console.log('Auth initialization timeout reached, forcing isLoading to false');
+        setIsLoading(false);
+      }
+    }, 3000); // Reduced to 3 seconds timeout
+    
+    return () => clearTimeout(timeoutId);
+  }, [isLoading]);
+
   // Initialize authentication state on component mount
   useEffect(() => {
+    console.log('initAuth effect triggered');
+    let isMounted = true; // Flag to prevent state updates after unmount
+
     const initAuth = async () => {
+      console.log('initAuth function execution started');
       try {
-        // In a real app, we would check for an existing session here
-        // For development, we'll just use our hardcoded token
-        const token = getDevToken();
+        // Get the current session
+        console.log('Getting current session from Supabase');
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
         
-        // Decode the token to get user information
-        const decoded = jwtDecode<any>(token);
+        if (sessionError) {
+          console.error('Error getting session:', sessionError.message);
+          if (isMounted) setIsLoading(false);
+          return;
+        }
         
-        setUser({
-          id: decoded.sub || 'dev_test_user',
-          name: 'Development User',
-          email: 'dev@example.com',
-          image: 'https://avatars.githubusercontent.com/u/1?v=4',
-          token,
-        });
+        console.log('Session from Supabase:', !!session);
         
-        setAccessToken(token);
+        if (session) {
+          console.log('Session found, setting session and user');
+          if (isMounted) {
+            setSession(session);
+            setUser(session.user);
+            setIsLoading(false);
+          }
+        } else {
+          console.log('No session found, checking for dev credentials');
+          const USE_DEV_USER = true;
+          // Auto-login in development mode if credentials are provided
+          if (import.meta.env.DEV && USE_DEV_USER) {
+            const devEmail = import.meta.env.VITE_SUPABASE_DEV_EMAIL;
+            const devPassword = import.meta.env.VITE_SUPABASE_DEV_PASSWORD;
+            
+            console.log('Dev credentials available:', { 
+              hasEmail: !!devEmail, 
+              hasPassword: !!devPassword,
+              email: devEmail
+            });
+            
+            if (devEmail && devPassword) {
+              console.log('Development mode: Auto-login with dev credentials');
+              try {
+                console.log('Attempting to sign in with dev credentials');
+                const { data, error } = await supabase.auth.signInWithPassword({
+                  email: devEmail,
+                  password: devPassword,
+                });
+                
+                if (error) {
+                  console.error('Dev auto-login failed:', error.message);
+                } else if (data.session) {
+                  console.log('Dev auto-login successful');
+                  console.log('Session token available:', !!data.session.access_token);
+                  if (isMounted) {
+                    setSession(data.session);
+                    setUser(data.user);
+                  }
+                } else {
+                  console.log('No error but no session returned');
+                }
+              } catch (e) {
+                console.error('Error during dev auto-login:', e);
+              }
+            } else {
+              console.log('Dev credentials not available, skipping auto-login');
+            }
+          }
+          
+          // Always set loading to false after attempting auto-login
+          if (isMounted) setIsLoading(false);
+        }
       } catch (error) {
         console.error('Error initializing auth:', error);
-      } finally {
-        setIsLoading(false);
+        // Make sure to set loading to false if there's an error
+        if (isMounted) setIsLoading(false);
       }
     };
     
+    // Set up auth state listener
+    console.log('Setting up auth state change listener');
+    let subscription: { unsubscribe: () => void } | null = null;
+    
+    try {
+      const { data } = supabase.auth.onAuthStateChange((event, session) => {
+        console.log('Auth state changed:', { event, hasSession: !!session });
+        if (isMounted) {
+          setSession(session);
+          setUser(session?.user ?? null);
+          setIsLoading(false);
+        }
+        console.log('Auth state updated, isLoading set to false');
+      });
+      
+      subscription = data.subscription;
+      console.log('Auth state change listener set up successfully');
+    } catch (error) {
+      console.error('Error setting up auth state listener:', error);
+      if (isMounted) setIsLoading(false);
+    }
+    
+    // Initialize auth
     initAuth();
+    
+    // Clean up on unmount
+    return () => {
+      console.log('Cleaning up auth provider');
+      isMounted = false;
+      if (subscription) {
+        console.log('Unsubscribing from auth state changes');
+        subscription.unsubscribe();
+      }
+    };
   }, []);
   
-  // Sign in function (simulated for development)
-  const signIn = async () => {
+  // Sign in with social provider
+  const signIn = async (provider?: 'github' | 'google' | 'facebook') => {
     setIsLoading(true);
     
     try {
-      // In a real app, this would make an API request to authenticate
-      // For development, we'll just use our hardcoded token
-      const token = getDevToken();
-      
-      // Decode the token to get user information
-      const decoded = jwtDecode<any>(token);
-      
-      setUser({
-        id: decoded.sub || 'dev_test_user',
-        name: 'Development User',
-        email: 'dev@example.com',
-        image: 'https://avatars.githubusercontent.com/u/1?v=4',
-        token,
-      });
-      
-      setAccessToken(token);
+      if (provider) {
+        // Sign in with OAuth provider
+        const { error } = await supabase.auth.signInWithOAuth({
+          provider,
+          options: {
+            redirectTo: window.location.origin,
+          },
+        });
+        
+        if (error) {
+          console.error('Error signing in with OAuth:', error.message);
+        }
+      } else {
+        // If no provider specified, show sign-in UI or use default provider
+        const { error } = await supabase.auth.signInWithOAuth({
+          provider: 'github',
+          options: {
+            redirectTo: window.location.origin,
+          },
+        });
+        
+        if (error) {
+          console.error('Error signing in with default provider:', error.message);
+        }
+      }
     } catch (error) {
       console.error('Error signing in:', error);
     } finally {
@@ -91,10 +201,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
   
-  // Sign out function
+  // Sign in with email and password
+  const signInWithPassword = async (email: string, password: string) => {
+    setIsLoading(true);
+    
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+      
+      if (error) {
+        console.error('Error signing in with password:', error.message);
+      } else if (data.session) {
+        console.log('Sign in successful, session established');
+      } else {
+        console.log('Sign in response received but no session data');
+      }
+    } catch (error) {
+      console.error('Error signing in with password:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  
+  // Sign out
   const signOut = async () => {
-    setUser(null);
-    setAccessToken(null);
+    try {
+      const { error } = await supabase.auth.signOut();
+      
+      if (error) {
+        console.error('Error signing out:', error.message);
+      }
+    } catch (error) {
+      console.error('Error signing out:', error);
+    }
   };
   
   // Provide the authentication context to children
@@ -102,10 +243,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     <AuthContext.Provider
       value={{
         user,
+        session,
         isAuthenticated: !!user,
         isLoading,
-        accessToken,
+        accessToken: session?.access_token ?? null,
         signIn,
+        signInWithPassword,
         signOut,
       }}
     >
@@ -118,5 +261,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
  * Custom hook for accessing authentication context
  */
 export function useAuth() {
-  return useContext(AuthContext);
+  console.log('useAuth hook called');
+  const authContext = useContext(AuthContext);
+  console.log('Auth context in useAuth hook:', {
+    isAuthenticated: authContext.isAuthenticated,
+    isLoading: authContext.isLoading,
+    hasUser: !!authContext.user,
+    hasSession: !!authContext.session,
+    hasToken: !!authContext.accessToken
+  });
+  return authContext;
 }

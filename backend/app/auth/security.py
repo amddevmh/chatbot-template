@@ -4,15 +4,21 @@ Security utilities for JWT authentication
 """
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional, Union
+import logging
 
-from fastapi import Depends, HTTPException, status, Header
+from fastapi import Depends, HTTPException, status, Header, Request
 from fastapi.security import APIKeyHeader
 from jose import JWTError, jwt
 from pydantic import BaseModel
-from typing import Annotated
+from typing import Annotated, Optional
 
 from app.config import settings
 from app.models.user import User
+from app.auth.supabase_client import supabase
+from app.auth.models import AuthUser
+
+# Get logger for this module
+logger = logging.getLogger(__name__)
 
 # API Key header for token extraction
 api_key_header = APIKeyHeader(name="Authorization", auto_error=False)
@@ -100,18 +106,23 @@ def verify_token(token: str) -> Optional[TokenData]:
     except JWTError:
         return None
 
-async def get_current_user(authorization: Optional[str] = Depends(api_key_header)) -> User:
+async def get_current_user(authorization: Optional[str] = Depends(api_key_header)) -> AuthUser:
     """
-    Get the current user from the token
+    Get the current user from the token using Supabase authentication
     
-    If the token is a dev token (sub="dev_test_user"), this function will
-    automatically create a test user in the database if it doesn't exist.
+    This function:
+    1. Extracts the JWT token from the Authorization header
+    2. Verifies the token with Supabase
+    3. Creates an AuthUser object with the user information
+    
+    If the token is a dev token and AUTH_BYPASS_ENABLED is true, this function will
+    use the legacy JWT verification.
     
     Args:
-        token: JWT token
+        authorization: Authorization header with Bearer token
         
     Returns:
-        User object
+        AuthUser object
         
     Raises:
         HTTPException: If authentication fails
@@ -124,89 +135,159 @@ async def get_current_user(authorization: Optional[str] = Depends(api_key_header
     
     # Check for token
     if not authorization:
+        logger.warning("401 Unauthorized: No authorization header provided")
         raise credentials_exception
         
     # Extract token from Bearer header
     if authorization.startswith("Bearer "):
         token = authorization[7:]
+        logger.info(f"Bearer token provided: {token[:10]}...")
     else:
         token = authorization  # Try to use the raw value if no Bearer prefix
+        logger.info(f"Raw token provided: {token[:10]}...")
     
-    # Check if auth bypass is enabled and validate the token
-    if settings.AUTH_BYPASS_ENABLED:
-        try:
-            # Decode without verification to check username
-            payload = jwt.decode(
-                token, 
-                settings.JWT_SECRET_KEY, 
-                algorithms=[settings.JWT_ALGORITHM],
-                options={"verify_exp": False}  # Don't verify expiration for this check
-            )
-            username = payload.get("sub")
-            if username:  # Any username in a valid token can be used for dev/test
-                is_dev_token = True
-                dev_username = username
-        except JWTError:
-            pass
-    
-    if settings.AUTH_BYPASS_ENABLED and 'is_dev_token' in locals() and is_dev_token:
-        # This is a dev token, get or create the test user
-        test_user = await User.find_one({"username": dev_username})
+    # First try Supabase authentication
+    try:
+        # Verify token with Supabase
+        response = supabase.auth.get_user(token)
+        supabase_user = response.user
         
-        if test_user is None:
-            # Create a test user with the username from the token
-            from app.services.user_service import UserService
+        if not supabase_user:
+            logger.warning(f"401 Unauthorized: Supabase returned no user for token")
+            raise credentials_exception
+        
+        logger.info(f"User verified with Supabase: {supabase_user.email}")
+        
+        # Create AuthUser object directly from Supabase user
+        auth_user = AuthUser(
+            id=supabase_user.id,
+            email=supabase_user.email,
+            user_metadata=supabase_user.user_metadata or {},
+            app_metadata=supabase_user.app_metadata or {}
+        )
+        
+        return auth_user
+        
+    except Exception as e:
+        logger.warning(f"Supabase authentication failed: {str(e)}")
+        
+        # Fall back to legacy JWT verification if Supabase fails
+        if settings.AUTH_BYPASS_ENABLED:
             try:
-                test_user = await UserService.create_user(
-                    username=dev_username,
-                    email=f"{dev_username}@example.com",
-                    password="devpassword123"
+                # Decode without verification to check username
+                payload = jwt.decode(
+                    token, 
+                    settings.JWT_SECRET_KEY, 
+                    algorithms=[settings.JWT_ALGORITHM],
+                    options={"verify_exp": False}  # Don't verify expiration for this check
                 )
-                # Mark as a test user and set appropriate flags
-                test_user.is_test_user = True
-                test_user.is_verified = True
-                test_user.is_active = True
-                await test_user.save()
-            except ValueError:
-                # User might have been created in another process
-                test_user = await User.find_one({"username": dev_username})
-                if test_user is None:
-                    raise credentials_exception
-        
-        return test_user
-    else:
-        # Normal token flow
-        token_data = verify_token(token)
-        
-        if token_data is None:
-            raise credentials_exception
+                username = payload.get("sub")
+                if username:  # Any username in a valid token can be used for dev/test
+                    is_dev_token = True
+                    dev_username = username
+                    logger.info(f"Using dev token for user: {dev_username}")
+            except JWTError as jwt_err:
+                logger.warning(f"JWT decode error (bypass check): {str(jwt_err)}")
+                raise credentials_exception
             
-        # Look up the user in the database
-        user = await User.find_one({"username": token_data.sub})
-        
-        if user is None:
-            raise credentials_exception
+            # For legacy JWT tokens, create an AuthUser directly
+            logger.info(f"Creating AuthUser from legacy JWT token for: {dev_username}")
             
-        return user
+            # Create a simple AuthUser with the username from the token
+            auth_user = AuthUser(
+                id=dev_username,  # Use username as ID for legacy tokens
+                email=f"{dev_username}@example.com",
+                user_metadata={"is_test_user": True},
+                app_metadata={"legacy_auth": True}
+            )
+            
+            return auth_user
+        else:
+            # No auth bypass, so we fail
+            logger.warning("401 Unauthorized: Both Supabase and legacy authentication failed")
+            raise credentials_exception
 
 
-async def get_current_active_verified_user(current_user: User = Depends(get_current_user)) -> User:
+async def get_current_active_verified_user(current_user: AuthUser = Depends(get_current_user)) -> AuthUser:
     """
     Get the current active and verified user
+    
+    When using Supabase authentication, all users are considered active and verified
+    by default, as this is managed by Supabase.
     
     Args:
         current_user: Current user from token
         
     Returns:
-        User object if active and verified
-        
-    Raises:
-        HTTPException: If user is not active or verified
+        AuthUser object
     """
-    if not current_user.is_active:
-        raise HTTPException(status_code=400, detail="Inactive user")
+    # With Supabase, we assume all authenticated users are active and verified
+    # If we need to check specific roles or permissions, we can look at user_metadata or app_metadata
     
-    if not current_user.is_verified:
-        raise HTTPException(status_code=400, detail="Email not verified")
+    # Example: Check if user is banned
+    if current_user.app_metadata.get("banned", False):
+        raise HTTPException(status_code=403, detail="User is banned")
     
     return current_user
+
+
+def get_user_from_request(request: Request) -> Optional[AuthUser]:
+    """
+    Get the user from the request state
+    
+    This function can be used as a dependency in route handlers
+    
+    Args:
+        request: The FastAPI request object
+        
+    Returns:
+        The AuthUser object if authenticated, None otherwise
+    """
+    return getattr(request.state, "user", None)
+
+
+def require_auth(user: Optional[AuthUser] = Depends(get_user_from_request)) -> AuthUser:
+    """
+    Require an authenticated user for a route
+    
+    This function can be used as a dependency in route handlers
+    
+    Args:
+        user: The user from the request state
+        
+    Returns:
+        The AuthUser object if authenticated
+        
+    Raises:
+        HTTPException: If not authenticated
+    """
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return user
+
+
+def require_role(role: str):
+    """
+    Require a specific role for a route
+    
+    This function returns a dependency that can be used in route handlers
+    
+    Args:
+        role: The required role
+        
+    Returns:
+        A dependency function that checks if the user has the required role
+    """
+    def _require_role(user: AuthUser = Depends(require_auth)) -> AuthUser:
+        if not user.has_role(role):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Role '{role}' required",
+            )
+        return user
+    
+    return _require_role

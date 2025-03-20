@@ -137,13 +137,15 @@ class ChatApiClient {
       return;
     }
     
-    if (!auth.accessToken) {
+    // With Supabase, the access token is in the session
+    const accessToken = auth.accessToken;
+    if (!accessToken) {
       console.warn('Attempted to set auth context without access token');
       return;
     }
     
     this.auth = auth;
-    console.log('Auth context set in ChatApiClient', !!auth.accessToken);
+    console.log('Auth context set in ChatApiClient', !!accessToken);
   }
   
   /**

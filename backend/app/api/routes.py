@@ -8,7 +8,8 @@ from app.models.chat import ChatRequest, ChatResponse
 from app.models.chat_session import ChatSessionCreate, ChatSessionResponse, ChatSessionListResponse
 from app.services.hello_service import HelloAuthenticatedService
 from app.services.chat_service import ChatService
-from app.auth.security import User, get_current_user
+from app.auth.security import get_current_user
+from app.auth.models import AuthUser
 
 router = APIRouter()
 
@@ -64,30 +65,30 @@ async def health_check():
 # Authenticated hello endpoint
 @router.get("/hello_authenticated", response_model=HelloAuthenticatedResponse)
 async def say_hello_authenticated(
-    current_user: User = Depends(get_current_user),
+    current_user: AuthUser = Depends(get_current_user),
     service: HelloAuthenticatedService = Depends(get_hello_service)
 ):
     """Return a personalized greeting for authenticated users"""
-    response = await service.say_hello(None, current_user.username)
+    response = await service.say_hello(None, current_user.email)
     return response
 
 # Chat endpoint
 @router.post("/chat", response_model=ChatResponse)
 async def chat(
     request: ChatRequest,
-    current_user: User = Depends(get_current_user)
+    current_user: AuthUser = Depends(get_current_user)
 ):
     """Handle chat requests with session memory"""
     try:
         # Get or create a session ID
-        print(f"[DEBUG] Chat request received from user: {current_user.username}")
+        print(f"[DEBUG] Chat request received from user: {current_user.email}")
         print(f"[DEBUG] Request session_id: {request.session_id}")
         
         if request.session_id:
             # Verify session belongs to user (simple check based on naming convention)
-            print(f"[DEBUG] Verifying session {request.session_id} belongs to user {current_user.username}")
-            if not request.session_id.startswith(f"{current_user.username}_"):
-                print(f"[DEBUG] Session verification failed: {request.session_id} does not belong to {current_user.username}")
+            print(f"[DEBUG] Verifying session {request.session_id} belongs to user {current_user.email}")
+            if not request.session_id.startswith(f"{current_user.email}_"):
+                print(f"[DEBUG] Session verification failed: {request.session_id} does not belong to {current_user.email}")
                 raise HTTPException(
                     status_code=403, 
                     detail="You do not have permission to access this session"
@@ -96,12 +97,11 @@ async def chat(
             print(f"[DEBUG] Using existing session: {session_id}")
         else:
             # No session ID provided, create a new session
-            print(f"[DEBUG] No session ID provided, creating new session for {current_user.username}")
+            print(f"[DEBUG] No session ID provided, creating new session for {current_user.email}")
             try:
-                print(f"[DEBUG] Calling chat_service.create_session for {current_user.username}")
+                print(f"[DEBUG] Calling chat_service.create_session for {current_user.email}")
                 session = await chat_service.create_session(
-                    username=current_user.username,
-                    session_name="Chat Session"
+                    username=current_user.email,                  session_name="Chat Session"
                 )
                 session_id = session["session_id"]
                 print(f"[DEBUG] Created new session successfully: {session_id}")
@@ -109,11 +109,11 @@ async def chat(
                 # If session creation fails, fall back to username as session ID
                 print(f"[DEBUG] Failed to create session: {str(session_err)}")
                 print(f"[DEBUG] Traceback: {traceback.format_exc()}")
-                session_id = current_user.username
+                session_id = current_user.email
                 print(f"[DEBUG] Falling back to username as session ID: {session_id}")
         
         # Log information about the request for debugging
-        print(f"Processing chat request from user: {current_user.username}")
+        print(f"Processing chat request from user: {current_user.email}")
         print(f"Using session ID: {session_id}")
         print(f"Message: {request.message}")
         
@@ -140,17 +140,17 @@ async def chat(
 @router.post("/chat/sessions", response_model=ChatSessionResponse)
 async def create_chat_session(
     request: ChatSessionCreate,
-    current_user: User = Depends(get_current_user)
+    current_user: AuthUser = Depends(get_current_user)
 ):
     """Create a new chat session"""
-    print(f"[DEBUG] create_chat_session endpoint called by user: {current_user.username}")
+    print(f"[DEBUG] create_chat_session endpoint called by user: {current_user.email}")
     print(f"[DEBUG] Session name requested: {request.name}")
     
     try:
         # Create a new session with the provided name (or default)
-        print(f"[DEBUG] Calling chat_service.create_session for {current_user.username}")
+        print(f"[DEBUG] Calling chat_service.create_session for {current_user.email}")
         session = await chat_service.create_session(
-            username=current_user.username,
+            username=current_user.email,
             session_name=request.name
         )
         print(f"[DEBUG] Session created successfully: {session}")
@@ -165,10 +165,10 @@ async def create_chat_session(
 @router.post("/chat/sessions/{session_id}/title", response_model=ChatSessionResponse)
 async def generate_session_title(
     session_id: str,
-    current_user: User = Depends(get_current_user)
+    current_user: AuthUser = Depends(get_current_user)
 ):
     """Generate a title for a chat session based on its content"""
-    print(f"[DEBUG] generate_session_title endpoint called for session: {session_id} by user: {current_user.username}")
+    print(f"[DEBUG] generate_session_title endpoint called for session: {session_id} by user: {current_user.email}")
     
     try:
         # Generate a title based on the conversation content
@@ -177,7 +177,7 @@ async def generate_session_title(
         
         # Update the session with the new title
         updated_session = await chat_service.update_session(
-            username=current_user.username,
+            username=current_user.email,
             session_id=session_id,
             name=title
         )
@@ -193,15 +193,15 @@ async def generate_session_title(
 
 @router.get("/chat/sessions", response_model=ChatSessionListResponse)
 async def list_chat_sessions(
-    current_user: User = Depends(get_current_user)
+    current_user: AuthUser = Depends(get_current_user)
 ):
     """List all chat sessions for the current user"""
-    print(f"[DEBUG] list_chat_sessions endpoint called by user: {current_user.username}")
+    print(f"[DEBUG] list_chat_sessions endpoint called by user: {current_user.email}")
     
     try:
         # Get all sessions for this user
-        print(f"[DEBUG] Calling chat_service.list_user_sessions for {current_user.username}")
-        sessions = await chat_service.list_user_sessions(current_user.username)
+        print(f"[DEBUG] Calling chat_service.list_user_sessions for {current_user.email}")
+        sessions = await chat_service.list_user_sessions(current_user.email)
         print(f"[DEBUG] Sessions retrieved successfully: {sessions}")
         return {"sessions": sessions}
     except Exception as e:
@@ -214,16 +214,16 @@ async def list_chat_sessions(
 @router.get("/chat/sessions/{session_id}/history")
 async def get_session_history(
     session_id: str,
-    current_user: User = Depends(get_current_user)
+    current_user: AuthUser = Depends(get_current_user)
 ):
     """Get message history for a specific session"""
-    print(f"[DEBUG] get_session_history endpoint called for session: {session_id} by user: {current_user.username}")
+    print(f"[DEBUG] get_session_history endpoint called for session: {session_id} by user: {current_user.email}")
     
     try:
         # Verify session belongs to user (simple check based on naming convention)
-        print(f"[DEBUG] Verifying session {session_id} belongs to user {current_user.username}")
-        if not session_id.startswith(f"{current_user.username}_"):
-            print(f"[DEBUG] Session verification failed: {session_id} does not belong to {current_user.username}")
+        print(f"[DEBUG] Verifying session {session_id} belongs to user {current_user.email}")
+        if not session_id.startswith(f"{current_user.email}_"):
+            print(f"[DEBUG] Session verification failed: {session_id} does not belong to {current_user.email}")
             raise HTTPException(
                 status_code=403, 
                 detail="You do not have permission to access this session"
