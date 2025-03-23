@@ -169,43 +169,8 @@ async def get_current_user(authorization: Optional[str] = Depends(api_key_header
         return auth_user
         
     except Exception as e:
-        logger.warning(f"Supabase authentication failed: {str(e)}")
-        
-        # Fall back to legacy JWT verification if Supabase fails
-        if settings.AUTH_BYPASS_ENABLED:
-            try:
-                # Decode without verification to check username
-                payload = jwt.decode(
-                    token, 
-                    settings.JWT_SECRET_KEY, 
-                    algorithms=[settings.JWT_ALGORITHM],
-                    options={"verify_exp": False}  # Don't verify expiration for this check
-                )
-                username = payload.get("sub")
-                if username:  # Any username in a valid token can be used for dev/test
-                    is_dev_token = True
-                    dev_username = username
-                    logger.info(f"Using dev token for user: {dev_username}")
-            except JWTError as jwt_err:
-                logger.warning(f"JWT decode error (bypass check): {str(jwt_err)}")
-                raise credentials_exception
-            
-            # For legacy JWT tokens, create an AuthUser directly
-            logger.info(f"Creating AuthUser from legacy JWT token for: {dev_username}")
-            
-            # Create a simple AuthUser with the username from the token
-            auth_user = AuthUser(
-                id=dev_username,  # Use username as ID for legacy tokens
-                email=f"{dev_username}@example.com",
-                user_metadata={"is_test_user": True},
-                app_metadata={"legacy_auth": True}
-            )
-            
-            return auth_user
-        else:
-            # No auth bypass, so we fail
-            logger.warning("401 Unauthorized: Both Supabase and legacy authentication failed")
-            raise credentials_exception
+        logger.warning(f"401 Unauthorized: Supabase authentication failed: {str(e)}")
+        raise credentials_exception
 
 
 async def get_current_active_verified_user(current_user: AuthUser = Depends(get_current_user)) -> AuthUser:
