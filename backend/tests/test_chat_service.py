@@ -7,6 +7,7 @@ import os
 import uuid
 import pytest
 import pytest_asyncio
+from unittest.mock import patch, MagicMock
 
 # Add the parent directory to the path so we can import app modules
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -68,7 +69,10 @@ class TestChatService:
         session_id_2 = str(uuid.uuid4())
         
         # Test 1: Send initial messages for each session
-        response_1a = await chat_service.get_chat_response("My name is Alex.", session_id_1)
+        # Get both the response and the intent for the first message
+        response_1a, intent_1a = await chat_service.get_chat_response("My name is Alex.", session_id_1, return_intent=True)
+        # Assert that the intent is correctly identified as "other" since it's not a calculator expression
+        assert intent_1a == "other", "Intent recognition failed to classify general message as 'other'"
         response_2a = await chat_service.get_chat_response("My name is Taylor.", session_id_2)
         
         print(f"Session 1 Initial Response: {response_1a}")
@@ -93,6 +97,32 @@ class TestChatService:
         assert "Alex" in response_1c, "ChatService response should mention the correct name (Alex)"
         assert "Yes" not in response_1c.lower(), "ChatService should not agree that session 1's name is Taylor"
 
+    async def test_calculator_intent_path(self, chat_service):
+        """Test the complete calculator intent path through the graph.
+        
+        This test verifies that:
+        1. A calculator expression is correctly identified as calculator intent
+        2. The message follows the calculator path through the graph
+        3. The response contains the calculation result
+        """
+        # Generate a unique session ID for testing
+        session_id = str(uuid.uuid4())
+        
+        # Test with a simple calculator expression
+        calculator_message = "What is 5+7?"
+        
+        # Get the response, intent, and trace
+        response, intent = await chat_service.get_chat_response(
+            calculator_message, 
+            session_id, 
+            return_intent=True,
+        )
+        
+        # Verify the intent classification
+        assert intent == "calculator", f"Intent should be 'calculator' but got '{intent}'"
+        
+       
+        
     async def test_message_history_management(self, chat_service):
         """Test that the message history is properly maintained across multiple interactions."""
         

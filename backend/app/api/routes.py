@@ -106,7 +106,7 @@ async def chat(
                 session_id = session["session_id"]
                 print(f"[DEBUG] Created new session successfully: {session_id}")
             except Exception as session_err:
-                # If session creation fails, fall back to username as session ID
+                # If session creation fails, fall back to username as session ID TODO rm this behaviour and fail gracefully
                 print(f"[DEBUG] Failed to create session: {str(session_err)}")
                 print(f"[DEBUG] Traceback: {traceback.format_exc()}")
                 session_id = current_user.email
