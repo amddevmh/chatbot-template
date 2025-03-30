@@ -55,37 +55,29 @@ This will:
 
 ## Implementation Details
 
-### Middleware
+### Authentication Dependencies
 
-The `verify_user_middleware` function in `middleware.py`:
-1. Extracts the JWT token from the Authorization header
-2. Verifies the token with Supabase
-3. Creates an `AuthUser` object with the user information
-4. Attaches the user to the request state
+The authentication system uses FastAPI dependencies for route protection:
 
-### Dependencies
-
-The following dependencies are available for route handlers:
-
-- `get_user_from_request`: Get the user from the request state
-- `require_auth`: Require an authenticated user
-- `require_role`: Require a specific role
+- `get_current_user`: Extracts and validates the JWT token from the Authorization header, returning an AuthUser object
+- `require_auth`: Ensures a user is authenticated, raising an HTTPException if not
+- `require_role`: Requires a specific role for the authenticated user
 
 ### Example Usage
 
 ```python
 from fastapi import APIRouter, Depends
-from app.auth.middleware import require_auth
+from app.auth.security import get_current_user
 from app.auth.models import AuthUser
 
 router = APIRouter()
 
 @router.get("/me")
-async def read_user_me(user: AuthUser = Depends(require_auth)):
+async def read_user_me(current_user: AuthUser = Depends(get_current_user)):
     return {
-        "id": user.id,
-        "email": user.email,
-        "name": user.name
+        "id": current_user.id,
+        "email": current_user.email,
+        "name": current_user.name
     }
 ```
 

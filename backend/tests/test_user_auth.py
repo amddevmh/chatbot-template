@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """
+OBSELETE TEST - DO NOT USE, BUT FIX //TODO
 Test Supabase authentication functionality
 
 This test verifies that:
@@ -19,8 +20,10 @@ from fastapi.testclient import TestClient
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from app.auth.models import AuthUser
-from app.auth.middleware import verify_user_middleware
+from app.auth.security import get_current_user
 from app.config import settings
+
+# TODO: This test needs to be rewritten to use the current dependency-based auth approach
 
 # Skip tests if Supabase credentials are not set
 pytestmark = pytest.mark.skipif(

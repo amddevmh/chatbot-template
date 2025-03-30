@@ -5,6 +5,8 @@ import json
 import logging
 import threading
 import traceback
+import uuid
+from datetime import datetime
 from typing import Optional, Tuple, List
 
 from langgraph.checkpoint.mongodb import MongoDBSaver
@@ -196,6 +198,7 @@ class ChatService:
         if custom_id:
             return f"{username}_{custom_id}"
         else:
+            print(f"Generating session ID for user: {username}")
             # Generate a unique ID if none provided
             unique_id = str(uuid.uuid4())[:8]
             return f"{username}_{unique_id}"
