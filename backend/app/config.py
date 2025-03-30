@@ -45,6 +45,9 @@ class Settings(BaseModel):
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
     LLM_MODEL: str = os.getenv("LLM_MODEL", "gpt-4o-mini")  # Default model, configurable
     
+    # MongoDB settings
+    MONGODB_CHECKPOINT_COLLECTION: str = os.getenv("MONGODB_CHECKPOINT_COLLECTION", "chat_memory")
+    
     # Supabase settings
     SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
     SUPABASE_KEY: str = os.getenv("SUPABASE_KEY", "")  # Anon key for client

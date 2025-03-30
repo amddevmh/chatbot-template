@@ -1,50 +1,40 @@
-#!/usr/bin/env python3
 """
 Chat service with session memory using LangGraph, aligned with official docs (Part 3)
 """
 import json
 import logging
-import time
-import traceback
-import asyncio
 import threading
-import uuid
-import os
-import re
-from datetime import datetime
-from typing import Annotated, Dict, Any, List, Optional, Union, Callable
-from typing_extensions import TypedDict
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import BaseMessage
-from langgraph.graph import StateGraph, START, END
-from langgraph.graph.message import add_messages
+import traceback
+from typing import Optional, Tuple, List
+
+from langgraph.checkpoint.mongodb import MongoDBSaver
+from langgraph.checkpoint.mongodb.aio import AsyncMongoDBSaver
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type, RetryError
 from functools import wraps
+
 # Handle different import paths based on environment
 try:
-    # Try the original import path first (for local development)
     from langgraph.checkpoint.mongodb import MongoDBSaver
     from langgraph.checkpoint.mongodb.aio import AsyncMongoDBSaver
 except ImportError:
-    # Fall back to the alternative package structure (for CI environment)
     try:
         from langgraph_checkpoint_mongodb import MongoDBSaver
         from langgraph_checkpoint_mongodb.aio import AsyncMongoDBSaver
     except ImportError:
-        # If both fail, provide a helpful error message
         logging.error("Could not import MongoDB checkpoint functionality. "
                      "Make sure either langgraph with MongoDB support or "
                      "langgraph-checkpoint-mongodb is installed.")
         raise
+
 from app.config import settings
 from app.database.mongodb import client as mongo_client, DATABASE_NAME
 from app.models.chat_session import ChatSessionMetadata
+from app.services.chat_workflow import build_chat_graph  # Import the graph builder
 
 # Set higher logging level for noisy libraries
 logging.getLogger('pymongo').setLevel(logging.WARNING)
 logging.getLogger('passlib').setLevel(logging.WARNING)
-logging.getLogger('jwt').setLevel(logging.WARNING)  # Also reduce JWT logging noise
-
+logging.getLogger('jwt').setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 # Track active sessions for concurrent request analysis
@@ -53,272 +43,84 @@ active_sessions_lock = threading.Lock()
 
 # Define a reusable retry decorator for database operations
 def with_database_retry(operation_name=None):
-    """
-    A decorator that applies retry logic to database operations.
-    
-    Args:
-        operation_name: Optional name for the operation for better logging
-        
-    Returns:
-        A decorator that can be applied to async functions
-    """
-    # Create the retry decorator with our standard configuration
-    retry_decorator = retry(
-        stop=stop_after_attempt(3),  # Stop after 3 attempts
-        wait=wait_exponential(multiplier=0.5, min=0.5, max=2),  # Exponential backoff
-        before_sleep=lambda retry_state: logger.warning(
-            f"Retrying {operation_name or 'database operation'} "
-            f"(attempt {retry_state.attempt_number}/3): {retry_state.outcome.exception()}"
-        )
-    )
-    
-    # Return a function that will apply this decorator to an async function
     def decorator(func):
-        @wraps(func)  # Preserve function metadata
+        @retry(
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=1, min=4, max=10),
+            retry=retry_if_exception_type(Exception),
+            before=lambda retry_state: logger.debug(
+                f"Attempt {retry_state.attempt_number} for {operation_name or func.__name__}"
+            ),
+            after=lambda retry_state: logger.debug(
+                f"Completed {operation_name or func.__name__} after {retry_state.attempt_number} attempts"
+            )
+        )
+        @wraps(func)
         async def wrapper(*args, **kwargs):
             try:
-                # Apply the retry decorator to the function
-                return await retry_decorator(func)(*args, **kwargs)
-            except RetryError as retry_err:
-                # All retries failed
-                original_exception = retry_err.last_attempt.exception()
-                logger.error(f"Failed {operation_name or func.__name__} after multiple retries: {str(original_exception)}")
-                # Re-raise the original exception
-                raise original_exception
+                return await func(*args, **kwargs)
+            except Exception as e:
+                logger.error(f"Error in {operation_name or func.__name__}: {str(e)}")
+                raise
         return wrapper
     return decorator
 
-# Define the enhanced state with intent
-class EnhancedState(TypedDict):
-    messages: Annotated[list[BaseMessage], add_messages]
-    intent: Optional[str] = None
-    calculation_result: Optional[str] = None
+
 
 class ChatService:
     """Service for stateful chat interactions with an LLM using LangGraph memory and non linear flows"""
-    
+
     """__init__ sets up the foundation but doesn't fully initialize Memory, which requires an async context. Check #Memory section for full initialization."""
+
     def __init__(self):
-        logger.info(f"Initializing ChatService (Thread ID: {threading.get_ident()})")
+        # Initialize logging
+        logger.info("Initializing ChatService")
+
+        # Placeholder for async-initialized memory
+        self.memory = None
+        self._memory_initialized = False
+
+        # MongoDB client and DB params for memory checkpoints
+        self._memory_params = {
+            "client": mongo_client,
+            "db_name": DATABASE_NAME,
+            "collection_name": settings.MONGODB_CHECKPOINT_COLLECTION
+        }
+
+        # Initialize the LLM
         try:
-            # 1. API Key Validation TODO Edit to be LLM agnostic
-            if not settings.OPENAI_API_KEY:
-                logger.error("OPENAI_API_KEY not found in settings")
-                raise ValueError("OPENAI_API_KEY is required for ChatService initialization")
-                
-            logger.info(f"Using LLM model: {settings.LLM_MODEL}")
+            from langchain_openai import ChatOpenAI
             self.llm = ChatOpenAI(
-                api_key=settings.OPENAI_API_KEY, 
                 model=settings.LLM_MODEL,
-                request_timeout=60  # Increase timeout to handle concurrent requests
+                api_key=settings.OPENAI_API_KEY,
+                temperature=0.7,
+                max_tokens=500,
             )
-            logger.info("LLM initialized successfully")
-            
-            self._memory_initialized = False
-            # We'll initialize the AsyncMongoDBSaver in an async context later
-            # For now, use a placeholder(MongoDBSaver) that will be replaced in initialize_async_memory()
-            # Why? FastAPI limitation: Service dependencies must initialize synchronously,
-            # but AsyncMongoDBSaver requires an async context. 
-            # So we use a two-phase initialization pattern to bridge these requirements.
-            
-            # Parameters for later memory initialization
-            self._memory_params = {
-                "client": mongo_client,
-                "db_name": DATABASE_NAME,
-                "collection_name": "chat_memory"
-            }
-            
-            # Build the graph without Async Memory
-            self.graph = self._build_graph()
-            logger.info("Graph built successfully")
+            logger.info(f"Initialized ChatOpenAI with model: {settings.LLM_MODEL}")
         except Exception as e:
-            logger.error(f"Error initializing ChatService: {str(e)}")
+            logger.error(f"Failed to initialize ChatOpenAI: {str(e)}")
             logger.error(traceback.format_exc())
-            # Make sure the error propagates to show the real issue
             raise
-            
-        # Initialize request metrics
-        self.request_metrics = {}
-        self.request_metrics_lock = threading.Lock()
-    
-    ## Graph
-    def _build_graph(self):
-        """Build the LangGraph workflow with intent recognition and routing"""
-        
-        logger.info("Building graph...")
-        graph_builder = StateGraph(EnhancedState)
-        
-        ## NODES ##
-        # Define the intent recognition node
-        async def identify_intent(state: EnhancedState) -> EnhancedState:
-            """Determine the intent of the user's message using AI classification."""
-            latest_message = state["messages"][-1].content if state["messages"] else ""
-            
-            if not latest_message:
-                logger.warning("Empty message received for intent classification")
-                state["intent"] = "other"
-                return state
-                
-            # Define our supported intents
-            intent_categories = [
-                "calculator",  # Mathematical calculations
-                "other"       # General conversation
-            ]
-            
-            # Create a prompt for the LLM to classify the intent
-            system_prompt = """You are an intent classification system. 
-            Classify the user message into exactly one of the following categories:
-            - calculator: Mathematical expressions or requests for calculations
-            - other: Any other type of message
-            
-            Respond with ONLY the category name, nothing else."""
-            
-            try:
-                # Use a lower temperature for more consistent classification
-                classification_response = await self.llm.ainvoke(
-                    [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": latest_message}
-                    ],
-                    temperature=0.1,
-                    max_tokens=10  # We only need a short response
-                )
-                
-                # Extract and normalize the intent
-                intent = classification_response.content.strip().lower()
-                
-                # Validate that the returned intent is in our categories
-                if intent in intent_categories:
-                    logger.info(f"AI identified intent: {intent} for message: {latest_message[:50]}...")
-                    state["intent"] = intent
-                else:
-                    logger.warning(f"AI returned unknown intent: {intent}, defaulting to 'other'")
-                    state["intent"] = "other"
-                    
-            except Exception as e:
-                # Fallback to 'other' intent if classification fails
-                logger.error(f"Error in intent classification: {str(e)}")
-                logger.error(traceback.format_exc())
-                state["intent"] = "other"
-            
-            return state
-        
-        # Define the calculator handler node
-        async def calculator_handler(state: EnhancedState) -> EnhancedState:
-            """Handle calculator requests by evaluating the expression."""
-            latest_message = state["messages"][-1].content
-            
-            try:
-                # Safely evaluate the mathematical expression
-                # Note: In a production environment, you'd want a more secure way to evaluate expressions
-                result = str(eval(latest_message))
-                state["calculation_result"] = result
-                logger.info(f"Calculator result: {result} for expression: {latest_message}")
-            except Exception as e:
-                logger.error(f"Error evaluating calculator expression: {str(e)}")
-                state["calculation_result"] = f"Error: Could not calculate '{latest_message}'"
-            
-            return state
-        
-        # Define the general chat handler node
-        async def general_chat_handler(state: EnhancedState) -> EnhancedState:
-            """Handle general chat messages."""
-            # No special processing needed for general chat
-            logger.info("Processing general chat message")
-            return state
-        
-        # Define the response generation node
-        async def generate_response(state: EnhancedState) -> EnhancedState:
-            """Generate a response based on the identified intent."""
-            intent = state.get("intent", "other")
-            
-            if intent == "calculator" and "calculation_result" in state:
-                # For calculator intent, return the calculation result
-                result = state["calculation_result"]
-                response_content = f"The result is: {result}"
-                
-                # Create a response message
-                response = {
-                    "role": "assistant",
-                    "content": response_content
-                }
-                
-                logger.info(f"Generated calculator response: {response_content}")
-                return {"messages": [response]}
-            else:
-                # For general chat, use the LLM
-                python_thread_id = threading.get_ident()
-                start_time = time.time()
-                logger.debug(f"[Thread {python_thread_id}] Starting LLM invocation with {len(state['messages'])} messages")
-                
-                try:
-                    # Invoke LLM with timeout handling
-                    response = await self.llm.ainvoke(state["messages"])
-                    elapsed = time.time() - start_time
-                    logger.info(f"[Thread {python_thread_id}] LLM responded in {elapsed:.2f}s: {response.content[:100]}...")
-                    return {"messages": [response]}
-                except asyncio.TimeoutError:
-                    logger.error(f"[Thread {python_thread_id}] LLM invocation timeout after {time.time() - start_time:.2f}s")
-                    raise
-                except Exception as e:
-                    logger.error(f"[Thread {python_thread_id}] LLM error: {str(e)}")
-                    logger.error(traceback.format_exc())
-                    raise
-        
-        # Add nodes to the graph
-        graph_builder.add_node("identify_intent", identify_intent)
-        graph_builder.add_node("calculator_handler", calculator_handler)
-        graph_builder.add_node("general_chat_handler", general_chat_handler)
-        graph_builder.add_node("generate_response", generate_response)
-        
-        # Add edges
-        graph_builder.add_edge(START, "identify_intent")
-        
-        # Add conditional edges based on intent
-        graph_builder.add_conditional_edges(
-            "identify_intent",
-            lambda x: "calculator_handler" if x["intent"] == "calculator" else "general_chat_handler"
+
+        # Build the graph with temporary synchronous memory saver
+        temp_memory = MongoDBSaver(
+            client=self._memory_params["client"],
+            db_name=self._memory_params["db_name"],
+            collection_name=self._memory_params["collection_name"]
         )
+        self.graph = build_chat_graph(self.llm, temp_memory)
+        logger.info("ChatService initialized with temporary memory saver")
+    
+
         
-        # Connect handlers to response generation
-        graph_builder.add_edge("calculator_handler", "generate_response")
-        graph_builder.add_edge("general_chat_handler", "generate_response")
-        graph_builder.add_edge("generate_response", END)
-        
-        logger.debug("Compiling graph with memory saver...")
-        try:
-            # If we're in the initial synchronous initialization, use a temporary memory
-            # This will be replaced when initialize_async_memory is called
-            if not hasattr(self, "_memory_initialized") or not self._memory_initialized:
-                logger.info("Using temporary synchronous MongoDBSaver for initial graph compilation")
-                temp_memory = MongoDBSaver(
-                    client=self._memory_params["client"],
-                    db_name=self._memory_params["db_name"],
-                    collection_name=self._memory_params["collection_name"]
-                )
-                compiled_graph = graph_builder.compile(checkpointer=temp_memory)
-            else:
-                # Use the properly initialized AsyncMongoDBSaver
-                compiled_graph = graph_builder.compile(checkpointer=self.memory)
-                
-            logger.debug("Graph compilation successful")
-            return compiled_graph
-        except Exception as e:
-            logger.error(f"Error compiling graph: {str(e)}")
-            logger.error(traceback.format_exc())
-            raise
-        
-    ## Memory
-    @with_database_retry(operation_name="initialize_async_memory")
+    # Memory Management
     async def initialize_async_memory(self):
-        """Initialize the AsyncMongoDBSaver in an async context"""
+        """Initialize the AsyncMongoDBSaver in an async context."""
         if hasattr(self, "_memory_initialized") and self._memory_initialized:
             logger.debug("AsyncMongoDBSaver already initialized")
             return
-        
         try:
             logger.info("Initializing AsyncMongoDBSaver in async context")
-            # Now we're in an async context, so we can initialize AsyncMongoDBSaver
             self.memory = AsyncMongoDBSaver(
                 client=self._memory_params["client"],
                 db_name=self._memory_params["db_name"],
@@ -326,139 +128,56 @@ class ChatService:
             )
             self._memory_initialized = True
             logger.info("AsyncMongoDBSaver initialized successfully")
-            
-            # Recompile the graph with the new memory saver
-            logger.info("Recompiling graph with AsyncMongoDBSaver")
-            self.graph = self._build_graph()
-            logger.info("Graph recompiled successfully")
+            # Rebuild the graph with the async memory saver
+            self.graph = build_chat_graph(self.llm, self.memory)
+            logger.info("Graph rebuilt with AsyncMongoDBSaver")
         except Exception as e:
             logger.error(f"Error initializing AsyncMongoDBSaver: {str(e)}")
             logger.error(traceback.format_exc())
             raise
     
-    ## Chat
-    async def get_chat_response(self, message: str, session_id: str, return_intent: bool = False) -> str:
-        """Get a response from the LLM with session context"""
-        request_id = f"{session_id}_{int(time.time()*1000)}"
-        python_thread_id = threading.get_ident()
-        start_time = time.time()
-        
-        # Ensure AsyncMongoDBSaver is initialized in async context
-        if not hasattr(self, "_memory_initialized") or not self._memory_initialized:
-            logger.info(f"[{request_id}] Initializing AsyncMongoDBSaver before processing request")
+    async def get_chat_response(self, message: str, session_id: str, return_intent: bool = False) -> str | Tuple[str, Optional[str]]:
+        """
+        Process a chat message and return the response, optionally with intent.
+
+        Args:
+            message: The user's input message.
+            session_id: Unique identifier for the chat session.
+            return_intent: If True, return a tuple of (response, intent).
+
+        Returns:
+            str: The assistant's response, or Tuple[str, Optional[str]]: (response, intent) if return_intent is True.
+        """
+        if not self._memory_initialized:
             await self.initialize_async_memory()
-        
-        # Track concurrent sessions
-        with active_sessions_lock:
-            prev_count = len(active_sessions)
-            active_sessions[request_id] = {
-                'session_id': session_id,
-                'python_thread_id': python_thread_id,
-                'start_time': start_time,
-                'message': message[:50] + '...' if len(message) > 50 else message
-            }
-            logger.info(f"[{request_id}] Starting request. Now handling {len(active_sessions)} concurrent requests")
-            if prev_count > 0:
-                logger.info(f"[{request_id}] Other active sessions: {[s for s in active_sessions if s != request_id]}")
-            
+
+        config = {"configurable": {"thread_id": session_id}}
+        input_state = {"messages": [{"role": "user", "content": message}]}
+
         try:
-            # Validate inputs
-            if not message or not isinstance(message, str):
-                logger.error(f"[{request_id}] Invalid message format: {message}")
-                raise ValueError(f"Invalid message format: {message}")
-                
-            if not session_id or not isinstance(session_id, str):
-                logger.error(f"[{request_id}] Invalid session_id format: {session_id}")
-                raise ValueError(f"Invalid session_id: {session_id}")
-                
-            logger.info(f"[{request_id}] Processing message of length {len(message)} for session {session_id}")
-                
-            # Configure session_id for LangGraph persistent memory
-            config = {"configurable": {"thread_id": session_id}}  # LangGraph uses thread_id for persistence
-            
-            # Log performance for each stage
-            memory_fetch_start = time.time()
-            
-            # Log the current state from memory
-            try:
-                checkpoint = await self.graph.aget_state(config)
-                memory_fetch_time = time.time() - memory_fetch_start
-                logger.info(f"[{request_id}] Memory fetch took {memory_fetch_time:.2f}s")
-                logger.debug(f"[{request_id}] State retrieved: {checkpoint.values if checkpoint else 'None'}")
-            except Exception as e:
-                logger.warning(f"[{request_id}] Failed to retrieve state: {str(e)}. Continuing with empty state.")
-                logger.warning(traceback.format_exc())
-                checkpoint = None
-            
-            # Input state with new user message
-            # If we have an existing checkpoint, we need to add to it, otherwise create a new state
-            if checkpoint and "messages" in checkpoint.values:
-                # Add the new message to existing messages
-                input_state = {"messages": checkpoint.values["messages"] + [{"role": "user", "content": message}]}
-                logger.debug(f"[{request_id}] Adding to existing state with {len(checkpoint.values['messages'])} messages")
-            else:
-                # Start with just the new message
-                input_state = {"messages": [{"role": "user", "content": message}]}
-                logger.debug(f"[{request_id}] Creating new state with user message")
-            
-            # Invoke the graph to get the final state
-            graph_start = time.time()
-            logger.info(f"[{request_id}] Starting graph invocation at {graph_start-start_time:.2f}s into request")
-            
-            try:
-                # Enable tracing for this invocation
-                config["trace"] = True
-                final_state = await self.graph.ainvoke(input_state, config)
-                graph_time = time.time() - graph_start
-                logger.info(f"[{request_id}] Graph invocation took {graph_time:.2f}s")
-            except asyncio.TimeoutError:
-                elapsed = time.time() - graph_start
-                logger.error(f"[{request_id}] Timeout during graph invocation after {elapsed:.2f}s")
-                # Log all active sessions to help diagnose contention
-                with active_sessions_lock:
-                    logger.error(f"[{request_id}] Active sessions during timeout: {active_sessions}")
-                raise TimeoutError(f"Graph invocation timed out after {elapsed:.2f}s")
-            except Exception as e:
-                elapsed = time.time() - graph_start
-                logger.error(f"[{request_id}] Error during graph invocation after {elapsed:.2f}s: {str(e)}")
-                logger.error(traceback.format_exc())
-                raise
-            
-            # Log the final state and verify memory
-            logger.debug(f"[{request_id}] Updated state: {final_state['messages']}")
-            
-            # Skip post-verification in concurrent scenarios to avoid bottlenecks
-            # Return the last message's content (the assistant's response)
-            response = final_state["messages"][-1].content
-            
-            # Update session metadata to track message count and last update time
-            try:
-                # Update session metadata
-                await self.update_session_metadata(session_id, increment_messages=2)  # 1 for user, 1 for assistant
-                logger.debug(f"[{request_id}] Updated session metadata for {session_id}")
-            except Exception as e:
-                logger.warning(f"[{request_id}] Failed to update session metadata: {str(e)}")
-            
-            total_time = time.time() - start_time
-            logger.info(f"[{request_id}] Total request processing time: {total_time:.2f}s")
-            
-            # Handle different return options
-            if return_intent and "intent" in final_state:
-                return response, final_state["intent"]
-            else:
-                return response
-            
-        except Exception as e:
-            elapsed = time.time() - start_time
-            logger.error(f"[{request_id}] Error in get_chat_response after {elapsed:.2f}s: {str(e)}")
-            logger.error(traceback.format_exc())
-            raise
-        finally:
-            # Clean up active sessions tracking
             with active_sessions_lock:
-                if request_id in active_sessions:
-                    del active_sessions[request_id]
-                    logger.info(f"[{request_id}] Completed. Now handling {len(active_sessions)} concurrent requests")
+                active_sessions[session_id] = active_sessions.get(session_id, 0) + 1
+            logger.debug(f"Active sessions: {len(active_sessions)}")
+
+            output = await self.graph.ainvoke(input_state, config)
+            checkpoint = await self.graph.aget_state(config)
+            response = checkpoint.values["messages"][-1].content
+
+            intent = checkpoint.values.get("intent") if return_intent else None
+
+            logger.info(f"Generated response for session {session_id}: {response[:100]}...")
+            return (response, intent) if return_intent else response
+
+        except Exception as e:
+            logger.error(f"Error generating chat response: {str(e)}")
+            logger.error(traceback.format_exc())
+            return ("I'm sorry, I encountered an error processing your request.", None) if return_intent else "I'm sorry, I encountered an error processing your request."
+        finally:
+            with active_sessions_lock:
+                active_sessions[session_id] -= 1
+                if active_sessions[session_id] <= 0:
+                    del active_sessions[session_id]
+            logger.debug(f"Active sessions after cleanup: {len(active_sessions)}")
 
     ## Sessions Mgmnt
     @with_database_retry(operation_name="generate_session_id")
