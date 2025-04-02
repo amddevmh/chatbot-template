@@ -7,7 +7,7 @@ from typing import Dict, Any, Optional
 from pydantic import BaseModel, EmailStr
 
 from app.auth.models import AuthUser
-from app.auth.security import require_auth
+from app.auth.security import require_auth, get_current_user
 from app.auth.supabase_client import supabase
 from app.config import settings
 
@@ -23,7 +23,7 @@ class UserResponse(BaseModel):
 
 
 @router.get("/me", response_model=UserResponse)
-async def read_users_me(current_user: AuthUser = Depends(require_auth)):
+async def read_users_me(current_user: AuthUser = Depends(get_current_user)):
     """
     Get current user information
     """
