@@ -1,6 +1,5 @@
 """
 Chat service with session memory using LangGraph, aligned with official docs 
-continue https://grok.com/chat/fae2d08b-32cd-47f3-8f13-78f417251d6a
 """
 import json
 import logging
