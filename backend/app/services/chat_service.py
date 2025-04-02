@@ -1,5 +1,6 @@
 """
-Chat service with session memory using LangGraph, aligned with official docs (Part 3)
+Chat service with session memory using LangGraph, aligned with official docs 
+continue https://grok.com/chat/fae2d08b-32cd-47f3-8f13-78f417251d6a
 """
 import json
 import logging
@@ -138,17 +139,16 @@ class ChatService:
             logger.error(traceback.format_exc())
             raise
     
-    async def get_chat_response(self, message: str, session_id: str, return_intent: bool = False) -> str | Tuple[str, Optional[str]]:
+    async def get_chat_response(self, message: str, session_id: str) -> str | Tuple[str, Optional[str]]:
         """
-        Process a chat message and return the response, optionally with intent.
+        Process a chat message and return the response.
 
         Args:
             message: The user's input message.
             session_id: Unique identifier for the chat session.
-            return_intent: If True, return a tuple of (response, intent).
 
         Returns:
-            str: The assistant's response, or Tuple[str, Optional[str]]: (response, intent) if return_intent is True.
+            str: The assistant's response.
         """
         if not self._memory_initialized:
             await self.initialize_async_memory()
@@ -165,15 +165,13 @@ class ChatService:
             checkpoint = await self.graph.aget_state(config)
             response = checkpoint.values["messages"][-1].content
 
-            intent = checkpoint.values.get("intent") if return_intent else None
-
             logger.info(f"Generated response for session {session_id}: {response[:100]}...")
-            return (response, intent) if return_intent else response
+            return response
 
         except Exception as e:
             logger.error(f"Error generating chat response: {str(e)}")
             logger.error(traceback.format_exc())
-            return ("I'm sorry, I encountered an error processing your request.", None) if return_intent else "I'm sorry, I encountered an error processing your request."
+            return "I'm sorry, I encountered an error processing your request."
         finally:
             with active_sessions_lock:
                 active_sessions[session_id] -= 1
